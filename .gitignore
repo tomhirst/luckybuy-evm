@@ -1,2 +1,7 @@
+.DS_Store
+lcov.info
+coverage/
 cache/
 out/
+.env
+node_modules/
