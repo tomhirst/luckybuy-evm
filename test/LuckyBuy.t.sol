@@ -12,7 +12,7 @@ contract TestLuckyBuyCommit is Test {
     address cosigner = address(0x4);
 
     uint256 seed = 12345;
-    string orderHash = "testOrderHash123";
+    bytes32 orderHash = hex"1234";
     uint256 amount = 1 ether;
     uint256 reward = 10 ether; // 10% odds
 
@@ -23,10 +23,9 @@ contract TestLuckyBuyCommit is Test {
         address cosigner,
         uint256 seed,
         uint256 counter,
-        string orderHash,
+        bytes32 orderHash,
         uint256 amount,
-        uint256 reward,
-        bytes32 hash
+        uint256 reward
     );
 
     function setUp() public {
@@ -54,8 +53,7 @@ contract TestLuckyBuyCommit is Test {
             0, // First counter for this receiver should be 0
             orderHash,
             amount,
-            reward,
-            bytes32(0) // We don't check the hash value
+            reward
         );
 
         luckyBuy.commit{value: amount}(
@@ -78,7 +76,7 @@ contract TestLuckyBuyCommit is Test {
             address storedCosigner,
             uint256 storedSeed,
             uint256 storedCounter,
-            string memory storedOrderHash,
+            bytes32 storedOrderHash,
             uint256 storedAmount,
             uint256 storedReward
         ) = luckyBuy.luckyBuys(0);
@@ -132,7 +130,7 @@ contract TestLuckyBuyCommit is Test {
             address storedCosigner,
             uint256 storedSeed,
             uint256 storedCounter,
-            string memory storedOrderHash,
+            bytes32 storedOrderHash,
             uint256 storedAmount,
             uint256 storedReward
         ) = luckyBuy.luckyBuys(1);
@@ -231,7 +229,7 @@ contract TestLuckyBuyCommit is Test {
             receiver,
             cosigner,
             seed + 1,
-            "user2OrderHash",
+            orderHash,
             reward
         );
         vm.stopPrank();
@@ -247,7 +245,7 @@ contract TestLuckyBuyCommit is Test {
             address cosigner1,
             ,
             ,
-            string memory orderHash1,
+            bytes32 orderHash1,
             uint256 amount1,
             uint256 reward1
         ) = luckyBuy.luckyBuys(0);
@@ -258,7 +256,7 @@ contract TestLuckyBuyCommit is Test {
             address cosigner2,
             ,
             ,
-            string memory orderHash2,
+            bytes32 orderHash2,
             uint256 amount2,
             uint256 reward2
         ) = luckyBuy.luckyBuys(1);
@@ -268,11 +266,7 @@ contract TestLuckyBuyCommit is Test {
         assertEq(receiver1, receiver, "First receiver should match");
         assertEq(receiver2, receiver, "Second receiver should match");
         assertEq(orderHash1, orderHash, "First order hash should match");
-        assertEq(
-            orderHash2,
-            "user2OrderHash",
-            "Second order hash should match"
-        );
+        assertEq(orderHash2, orderHash, "Second order hash should match");
         assertEq(amount1, amount, "First amount should match");
         assertEq(amount2, amount, "Second amount should match");
         assertEq(reward1, reward, "First reward should match");
@@ -297,7 +291,7 @@ contract TestLuckyBuyCommit is Test {
             receiver2,
             cosigner,
             seed + 1,
-            "receiver2OrderHash",
+            orderHash,
             reward
         );
 
@@ -363,7 +357,7 @@ contract TestLuckyBuyCommit is Test {
             receiver,
             cosigner,
             seed,
-            "smallAmount",
+            orderHash,
             reward
         );
 
@@ -371,7 +365,7 @@ contract TestLuckyBuyCommit is Test {
             receiver,
             cosigner,
             seed + 1,
-            "largeAmount",
+            orderHash,
             reward
         );
 
@@ -398,7 +392,7 @@ contract TestLuckyBuyCommit is Test {
                 receiver,
                 cosigner,
                 seed + i,
-                string(abi.encodePacked("orderHash", i)),
+                orderHash,
                 reward
             );
 
@@ -424,7 +418,7 @@ contract TestLuckyBuyCommit is Test {
             receiver,
             cosigner,
             seed,
-            "orderHash",
+            orderHash,
             startMaxReward * 2
         );
 
@@ -440,7 +434,7 @@ contract TestLuckyBuyCommit is Test {
             receiver,
             cosigner,
             seed,
-            "orderHash",
+            orderHash,
             startMaxReward * 2
         );
 
@@ -449,7 +443,7 @@ contract TestLuckyBuyCommit is Test {
             receiver,
             cosigner,
             seed,
-            "orderHash",
+            orderHash,
             startMaxReward * 3
         );
     }

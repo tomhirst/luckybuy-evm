@@ -14,6 +14,16 @@ contract SignatureVerifier is ISignatureVerifier, EIP712 {
         string memory version
     ) EIP712(name, version) {}
 
+    function hashOrder(
+        address to,
+        uint256 value,
+        bytes memory data,
+        address tokenAddress,
+        uint256 tokenId
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(to, value, data, tokenAddress, tokenId));
+    }
+
     /// @notice Hashes a commit
     /// @param commit Commit to hash
     /// @return Hash of the commit
@@ -30,7 +40,7 @@ contract SignatureVerifier is ISignatureVerifier, EIP712 {
                 keccak256(
                     abi.encode(
                         keccak256(
-                            "CommitData(uint256 id,address receiver,address cosigner,uint256 seed,uint256 counter,string orderHash,uint256 amount,uint256 reward)"
+                            "CommitData(uint256 id,address receiver,address cosigner,uint256 seed,uint256 counter,bytes32 orderHash,uint256 amount,uint256 reward)"
                         ),
                         commit.id,
                         commit.receiver,
@@ -50,7 +60,7 @@ contract SignatureVerifier is ISignatureVerifier, EIP712 {
     /// @param commit A commit.
     /// @param signature An EIP712 signature of the given commit.
     function verify(
-        CommitData calldata commit,
+        CommitData memory commit,
         bytes memory signature
     ) public view returns (address) {
         return _verify(commit, signature);
@@ -61,7 +71,7 @@ contract SignatureVerifier is ISignatureVerifier, EIP712 {
     /// @param signature Signature to verify
     /// @return Address of the signer
     function _verify(
-        CommitData calldata commit,
+        CommitData memory commit,
         bytes memory signature
     ) internal view returns (address) {
         bytes32 digest = _hash(commit);

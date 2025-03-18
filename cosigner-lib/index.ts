@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 
-const SIGNING_DOMAIN_NAME = "MagicSigner";
+const SIGNING_DOMAIN_NAME = "LuckyBuy";
 const SIGNING_DOMAIN_VERSION = "1";
 
 interface CommitParams {
@@ -79,7 +79,7 @@ export class MagicSigner {
         { name: "cosigner", type: "address" },
         { name: "seed", type: "uint256" },
         { name: "counter", type: "uint256" },
-        { name: "orderHash", type: "string" },
+        { name: "orderHash", type: "bytes32" },
         { name: "amount", type: "uint256" },
         { name: "reward", type: "uint256" },
       ],
@@ -146,7 +146,7 @@ export class MagicSigner {
       "address", // cosigner
       "uint256", // seed
       "uint256", // counter
-      "string", // orderHash
+      "bytes32", // orderHash
       "uint256", // amount
       "uint256", // reward
     ];
@@ -164,6 +164,47 @@ export class MagicSigner {
     ]);
 
     return encodedData;
+  }
+
+  async hashOrder(
+    to: string,
+    value: bigint | number,
+    data: string | Uint8Array,
+    tokenAddress: string,
+    tokenId: bigint | number
+  ): Promise<string> {
+    // Convert all parameters to their appropriate types for encoding
+    const addressTo = ethers.getAddress(to); // Normalize address format
+    const bigValue = BigInt(value); // Ensure it's a BigInt for encoding
+
+    // Handle data based on type
+    let bytesData: Uint8Array;
+    if (typeof data === "string") {
+      // If it's a hex string
+      if (data.startsWith("0x")) {
+        bytesData = ethers.getBytes(data);
+      } else {
+        // If it's a normal string, convert to UTF-8 bytes
+        bytesData = ethers.toUtf8Bytes(data);
+      }
+    } else {
+      // It's already a Uint8Array
+      bytesData = data;
+    }
+
+    const tokenAddr = ethers.getAddress(tokenAddress); // Normalize address
+    const bigTokenId = BigInt(tokenId); // Ensure it's a BigInt
+
+    // Use ABI encoding to match Solidity's abi.encode exactly
+    const encodedData = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address", "uint256", "bytes", "address", "uint256"],
+      [addressTo, bigValue, bytesData, tokenAddr, bigTokenId]
+    );
+
+    // Hash the encoded data
+    const hash = ethers.keccak256(encodedData);
+
+    return hash;
   }
 }
 
