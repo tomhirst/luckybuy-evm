@@ -554,7 +554,7 @@ contract FulfillTest is Test {
             orderHash2,
             REWARD
         );
-
+        // First get the struct hash from our previous test
         (
             uint256 id,
             address receiver,

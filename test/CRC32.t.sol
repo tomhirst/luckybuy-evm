@@ -19,6 +19,13 @@ contract TestCRC32 is Test {
         crc32 = new CRC32();
     }
 
+    function test_crc32_table() public {
+        for (uint256 i = 0; i < 256; i++) {
+            uint256 crcValue = crc32.crcTable(i);
+            console.log("CRC32 of", i, "is", crcValue);
+        }
+    }
+
     function test_crc32_single() public {
         string memory data = "test";
         uint32 result = crc32.crc32(data);
@@ -63,12 +70,10 @@ contract TestCRC32 is Test {
             // Calculate CRC32
             uint32 crcValue = crc32.crc32(input);
 
-            // Format as CSV row: index,input,decimal,hex
+            // Format as CSV row: index, decimal, hex
             string memory row = string(
                 abi.encodePacked(
                     vm.toString(i),
-                    ",",
-                    input,
                     ",",
                     vm.toString(uint256(crcValue)),
                     ",",
