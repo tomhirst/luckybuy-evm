@@ -27,7 +27,8 @@ contract TestLuckyBuyCommit is Test {
         bytes32 orderHash,
         uint256 amount,
         uint256 reward,
-        uint256 fee
+        uint256 fee,
+        bytes32 digest
     );
 
     event Withdrawal(address indexed sender, uint256 amount);
@@ -61,7 +62,8 @@ contract TestLuckyBuyCommit is Test {
             orderHash,
             amount,
             reward,
-            0
+            0,
+            bytes32(0)
         );
 
         luckyBuy.commit{value: amount}(
