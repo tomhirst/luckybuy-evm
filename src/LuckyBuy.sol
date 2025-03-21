@@ -24,11 +24,11 @@ contract LuckyBuy is
     uint256 public protocolBalance; // The protocol fees for the open commits
     uint256 public maxReward = 50 ether;
     uint256 public protocolFee = 0;
+    uint256 public minReward = BASE_POINTS;
 
     uint256 public commitExpireTime = 1 days;
     mapping(uint256 commitId => uint256 expiresAt) public commitExpiresAt;
 
-    uint256 public constant minReward = BASE_POINTS;
     uint256 public constant MIN_COMMIT_EXPIRE_TIME = 1 minutes;
 
     mapping(address cosigner => bool active) public isCosigner;
@@ -70,6 +70,7 @@ contract LuckyBuy is
     event ProtocolFeeUpdated(uint256 oldProtocolFee, uint256 newProtocolFee);
     event Withdrawal(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount);
+    event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event CommitExpireTimeUpdated(
         uint256 oldCommitExpireTime,
         uint256 newCommitExpireTime
@@ -141,6 +142,7 @@ contract LuckyBuy is
 
         if (amountWithoutFee > reward_) revert InvalidAmount();
 
+        // Check if odds are greater than 100%
         if ((amountWithoutFee * BASE_POINTS) / reward_ > BASE_POINTS)
             revert InvalidAmount();
 
@@ -512,6 +514,21 @@ contract LuckyBuy is
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         maxReward = maxReward_;
         emit MaxRewardUpdated(maxReward, maxReward_);
+    }
+
+    /// @notice Sets the minimum allowed reward
+    /// @param minReward_ New minimum reward value
+    /// @dev Only callable by admin role
+    function setMinReward(
+        uint256 minReward_
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (minReward_ > maxReward) revert InvalidReward();
+        if (minReward_ < BASE_POINTS) revert InvalidReward();
+
+        uint256 oldMinReward = minReward;
+        minReward = minReward_;
+
+        emit MinRewardUpdated(oldMinReward, minReward_);
     }
 
     /// @notice Deposits ETH into the treasury

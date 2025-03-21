@@ -935,6 +935,32 @@ contract TestLuckyBuyCommit is Test {
         vm.stopPrank();
     }
 
+    function testMinRewardUpdate() public {
+        vm.startPrank(admin);
+        luckyBuy.setMinReward(luckyBuy.BASE_POINTS());
+        vm.stopPrank();
+
+        assertEq(luckyBuy.minReward(), luckyBuy.BASE_POINTS());
+    }
+
+    function testMinRewardUpdateBelowBase() public {
+        vm.startPrank(admin);
+        vm.expectRevert(LuckyBuy.InvalidReward.selector);
+        luckyBuy.setMinReward(0);
+        vm.stopPrank();
+    }
+
+    function testMinRewardUpdateAboveMax() public {
+        vm.startPrank(admin);
+
+        uint256 maxReward = 1000;
+
+        luckyBuy.setMaxReward(maxReward);
+
+        vm.expectRevert(LuckyBuy.InvalidReward.selector);
+        luckyBuy.setMinReward(maxReward + 1);
+        vm.stopPrank();
+    }
     function testSetCommitExpireTime() public {
         uint256 expireTime = 10 days;
         vm.startPrank(admin);
