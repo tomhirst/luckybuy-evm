@@ -112,19 +112,18 @@ contract LuckyBuy is
         if (receiver_ == address(0)) revert InvalidReceiver();
         if (reward_ > maxReward) revert InvalidReward();
         if (reward_ < minReward) revert InvalidReward();
+        if (reward_ == 0) revert InvalidReward();
 
-        uint256 amountWithoutFee = calculateContributionWithoutFee(msg.value);
+        uint256 fee = _calculateFee(reward_);
+        uint256 amountWithoutFee = msg.value - fee;
 
         if (amountWithoutFee > reward_) revert InvalidAmount();
-        if (reward_ == 0) revert InvalidReward();
 
         if ((amountWithoutFee * BASE_POINTS) / reward_ > BASE_POINTS)
             revert InvalidAmount();
 
         uint256 commitId = luckyBuys.length;
         uint256 userCounter = luckyBuyCount[receiver_]++;
-
-        uint256 fee = msg.value - amountWithoutFee;
 
         feesPaid[commitId] = fee;
         protocolBalance += fee;
@@ -379,17 +378,6 @@ contract LuckyBuy is
 
         _pause();
         emit Withdrawal(msg.sender, currentBalance);
-    }
-
-    /// @notice Calculates contribution amount after removing fee
-    /// @param amount The original amount including fee
-    /// @return The contribution amount without the fee
-    /// @dev Uses formula: contribution = (amount * FEE_DENOMINATOR) / (FEE_DENOMINATOR + feePercent)
-    /// @dev This ensures fee isn't charged on the fee portion itself
-    function calculateContributionWithoutFee(
-        uint256 amount
-    ) public view returns (uint256) {
-        return (amount * BASE_POINTS) / (BASE_POINTS + protocolFee);
     }
 
     /// @notice Calculates fee amount based on input amount and fee percentage
