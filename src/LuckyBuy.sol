@@ -22,7 +22,7 @@ contract LuckyBuy is
     uint256 public treasuryBalance; // The contract balance
     uint256 public commitBalance; // The open commit balances
     uint256 public protocolBalance; // The protocol fees for the open commits
-    uint256 public maxReward = 30 ether;
+    uint256 public maxReward = 50 ether;
     uint256 public protocolFee = 0;
 
     uint256 public constant minReward = BASE_POINTS;
