@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import "./common/SignatureVerifier.sol";
 
+import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./common/MEAccessControl.sol";
@@ -16,6 +17,11 @@ contract LuckyBuy is
     PRNG,
     ReentrancyGuard
 {
+    // We will not track our supply on this contract. We will mint a yuge amount and never run out on the oe.
+    address public openEditionToken;
+    uint256 public openEditionTokenId;
+    uint256 public openEditionTokenAmount;
+
     CommitData[] public luckyBuys;
     mapping(bytes32 commitDigest => uint256 commitId) public commitIdByDigest;
 
@@ -76,6 +82,11 @@ contract LuckyBuy is
         uint256 newCommitExpireTime
     );
     event CommitExpired(uint256 indexed commitId, bytes32 digest);
+    event OpenEditionTokenSet(
+        address indexed token,
+        uint256 indexed tokenId,
+        uint256 amount
+    );
 
     error AlreadyCosigner();
     error AlreadyFulfilled();
@@ -263,6 +274,15 @@ contract LuckyBuy is
                 digest
             );
         } else {
+            if (openEditionToken != address(0)) {
+                IERC1155(openEditionToken).safeTransferFrom(
+                    address(this),
+                    commitData.receiver,
+                    openEditionTokenId,
+                    openEditionTokenAmount,
+                    ""
+                );
+            }
             // emit the failure
             emit Fulfillment(
                 msg.sender,
@@ -464,9 +484,44 @@ contract LuckyBuy is
         return (_amount * protocolFee) / BASE_POINTS;
     }
 
+    function onERC1155Received(
+        address operator,
+        address from,
+        uint256 id,
+        uint256 value,
+        bytes calldata data
+    ) external returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
     // ############################################################
     // ############ GETTERS & SETTERS ############
     // ############################################################
+
+    /// @notice Sets the open edition token. We allow address(0) here.
+    /// @param token_ Address of the open edition token
+    /// @param tokenId_ ID of the open edition token
+    /// @param amount_ Amount of the open edition token
+    /// @dev Only callable by ops role
+    function setOpenEditionToken(
+        address token_,
+        uint256 tokenId_,
+        uint256 amount_
+    ) external onlyRole(OPS_ROLE) {
+        if (address(token_) == address(0)) {
+            openEditionToken = address(0);
+            openEditionTokenId = 0;
+            openEditionTokenAmount = 0;
+            emit OpenEditionTokenSet(token_, 0, 0);
+        } else {
+            if (amount_ == 0) revert InvalidAmount();
+
+            openEditionToken = token_;
+            openEditionTokenId = tokenId_;
+            openEditionTokenAmount = amount_;
+            emit OpenEditionTokenSet(token_, tokenId_, amount_);
+        }
+    }
 
     /// @notice Adds a new authorized cosigner
     /// @param cosigner_ Address to add as cosigner
