@@ -1,6 +1,6 @@
 # LuckyBuy EVM Contracts
 
-LuckyBuy is a decentralized protocol that enables probabilistic NFT purchases. Users can commit a fraction of an NFT's price for a proportional chance to win the NFT. If they win, they receive the NFT at a discount. If they don't win, they keep their committed amount.
+LuckyBuy is a decentralized protocol that enables probabilistic NFT purchases. Users can commit a fraction of an NFT's price for a proportional chance to win the NFT. If they win, they receive the NFT at a discount. If they don't win, they lose their committed amount.
 
 ## Overview
 
@@ -8,7 +8,7 @@ The protocol works in three steps:
 
 1. **Commit**: Users commit ETH with a proportional chance to win (e.g., commit 0.1 ETH on a 1 ETH NFT for a 10% chance to win)
 2. **Verify**: Trusted cosigners verify and sign valid commits
-3. **Fulfill**: The protocol attempts to purchase the NFT if the user wins, or returns the ETH if they lose
+3. **Fulfill**: The protocol attempts to purchase the NFT if the user wins, or keeps the ETH if they lose
 
 ### Key Features
 
