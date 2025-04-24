@@ -3,7 +3,8 @@ pragma solidity 0.8.28;
 
 import "./common/SignatureVerifier.sol";
 
-import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import {IERC1155MInitializableV1_0_2} from "./common/interfaces/IERC1155MInitializableV1_0_2.sol";
+
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./common/MEAccessControl.sol";
@@ -21,7 +22,10 @@ contract LuckyBuy is
     // We will not track our supply on this contract. We will mint a yuge amount and never run out on the oe.
     address public openEditionToken;
     uint256 public openEditionTokenId;
-    uint256 public openEditionTokenAmount;
+    // The OE interface forces us to use uint32
+    uint32 public openEditionTokenAmount;
+    uint32 public openEditionTokenLimit;
+    bytes32[] public openEditionTokenProof;
 
     CommitData[] public luckyBuys;
     mapping(bytes32 commitDigest => uint256 commitId) public commitIdByDigest;
@@ -89,7 +93,9 @@ contract LuckyBuy is
     event OpenEditionTokenSet(
         address indexed token,
         uint256 indexed tokenId,
-        uint256 amount
+        uint256 amount,
+        uint256 limit,
+        bytes32[] proof
     );
     event FlatFeeUpdated(uint256 oldFlatFee, uint256 newFlatFee);
     event FeeReceiverUpdated(
@@ -305,12 +311,12 @@ contract LuckyBuy is
             );
         } else {
             if (openEditionToken != address(0)) {
-                IERC1155(openEditionToken).safeTransferFrom(
-                    address(this),
+                IERC1155MInitializableV1_0_2(openEditionToken).authorizedMint(
                     commitData.receiver,
                     openEditionTokenId,
                     openEditionTokenAmount,
-                    ""
+                    openEditionTokenLimit,
+                    openEditionTokenProof
                 );
             }
             // emit the failure
@@ -529,26 +535,59 @@ contract LuckyBuy is
     /// @notice Sets the open edition token. We allow address(0) here.
     /// @param token_ Address of the open edition token
     /// @param tokenId_ ID of the open edition token
-    /// @param amount_ Amount of the open edition token
+    /// @param amount_ Amount of the open edition token. The OE interface forces us to use uint32
     /// @dev Only callable by ops role
     function setOpenEditionToken(
         address token_,
         uint256 tokenId_,
-        uint256 amount_
+        uint32 amount_
     ) external onlyRole(OPS_ROLE) {
+        _setOpenEditionToken(token_, tokenId_, amount_, 0, new bytes32[](0));
+    }
+    /// @notice Sets the open edition token. We allow address(0) here.
+    /// @param token_ Address of the open edition token
+    /// @param tokenId_ ID of the open edition token
+    /// @param amount_ Amount of the open edition token. The OE interface forces us to use uint32
+    /// @dev Only callable by ops role
+    function setOpenEditionToken(
+        address token_,
+        uint256 tokenId_,
+        uint32 amount_,
+        uint32 limit_,
+        bytes32[] calldata proof_
+    ) external onlyRole(OPS_ROLE) {
+        _setOpenEditionToken(token_, tokenId_, amount_, limit_, proof_);
+    }
+
+    function _setOpenEditionToken(
+        address token_,
+        uint256 tokenId_,
+        uint32 amount_,
+        uint32 limit_,
+        bytes32[] memory proof_
+    ) internal {
         if (address(token_) == address(0)) {
             openEditionToken = address(0);
             openEditionTokenId = 0;
             openEditionTokenAmount = 0;
-            emit OpenEditionTokenSet(token_, 0, 0);
+            openEditionTokenLimit = 0;
+            openEditionTokenProof = new bytes32[](0);
         } else {
             if (amount_ == 0) revert InvalidAmount();
 
             openEditionToken = token_;
             openEditionTokenId = tokenId_;
             openEditionTokenAmount = amount_;
-            emit OpenEditionTokenSet(token_, tokenId_, amount_);
+            openEditionTokenLimit = limit_;
+            openEditionTokenProof = proof_;
         }
+        emit OpenEditionTokenSet(
+            openEditionToken,
+            openEditionTokenId,
+            openEditionTokenAmount,
+            openEditionTokenLimit,
+            openEditionTokenProof
+        );
     }
 
     /// @notice Adds a new authorized cosigner
