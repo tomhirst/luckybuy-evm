@@ -7,8 +7,9 @@ import "src/LuckyBuy.sol";
 contract MockLuckyBuy is LuckyBuy {
     constructor(
         uint256 protocolFee_,
+        uint256 flatFee_,
         address feeReceiver_
-    ) LuckyBuy(protocolFee_, feeReceiver_) {}
+    ) LuckyBuy(protocolFee_, flatFee_, feeReceiver_) {}
 
     function setIsFulfilled(uint256 commitId_, bool isFulfilled_) public {
         isFulfilled[commitId_] = isFulfilled_;
@@ -22,6 +23,7 @@ contract TestLuckyBuyCommit is Test {
     address receiver = address(0x3);
     address cosigner = address(0x4);
     uint256 protocolFee = 0;
+    uint256 flatFee = 0;
 
     uint256 seed = 12345;
     bytes32 orderHash = hex"1234";
@@ -39,6 +41,7 @@ contract TestLuckyBuyCommit is Test {
         uint256 amount,
         uint256 reward,
         uint256 fee,
+        uint256 flatFee,
         bytes32 digest
     );
     event CommitExpireTimeUpdated(
@@ -53,7 +56,7 @@ contract TestLuckyBuyCommit is Test {
 
     function setUp() public {
         vm.startPrank(admin);
-        luckyBuy = new MockLuckyBuy(protocolFee, admin);
+        luckyBuy = new MockLuckyBuy(protocolFee, flatFee, admin);
         vm.deal(admin, 100 ether);
         vm.deal(receiver, 100 ether);
         vm.deal(address(this), 100 ether);
@@ -78,6 +81,7 @@ contract TestLuckyBuyCommit is Test {
             orderHash,
             amount,
             reward,
+            0,
             0,
             bytes32(0)
         );
@@ -115,6 +119,79 @@ contract TestLuckyBuyCommit is Test {
         assertEq(storedOrderHash, orderHash, "Order hash should match");
         assertEq(storedAmount, amount, "Amount should match");
         assertEq(storedReward, reward, "Reward should match");
+        vm.stopPrank();
+    }
+
+    function testCommitSuccessWithFlatFee() public {
+        uint256 flatFeeAmount = 0.01 ether;
+        vm.startPrank(admin);
+        luckyBuy.setFlatFee(flatFeeAmount);
+        vm.stopPrank();
+
+        assertEq(luckyBuy.flatFee(), flatFeeAmount);
+
+        assertEq(luckyBuy.protocolBalance(), 0);
+
+        console.log("protocolFee", luckyBuy.protocolFee());
+
+        vm.deal(address(luckyBuy), 100 ether);
+
+        vm.startPrank(user);
+        vm.deal(user, amount + flatFeeAmount);
+
+        // Note: We can't easily check the hash in the event since it's calculated inside the contract
+        vm.expectEmit(true, true, true, false); // We don't check the non-indexed parameters
+        emit Commit(
+            user,
+            0, // First commit ID should be 0
+            receiver,
+            cosigner,
+            seed,
+            0, // First counter for this receiver should be 0
+            orderHash,
+            amount,
+            reward,
+            0,
+            flatFeeAmount,
+            bytes32(0)
+        );
+
+        luckyBuy.commit{value: amount + flatFeeAmount}(
+            receiver,
+            cosigner,
+            seed,
+            orderHash,
+            reward
+        );
+
+        assertEq(
+            luckyBuy.luckyBuyCount(receiver),
+            1,
+            "Receiver counter should be incremented"
+        );
+
+        (
+            uint256 id,
+            address storedReceiver,
+            address storedCosigner,
+            uint256 storedSeed,
+            uint256 storedCounter,
+            bytes32 storedOrderHash,
+            uint256 storedAmount,
+            uint256 storedReward
+        ) = luckyBuy.luckyBuys(0);
+
+        assertEq(id, 0, "Commit ID should be 0");
+        assertEq(storedReceiver, receiver, "Receiver should match");
+        assertEq(storedCosigner, cosigner, "Cosigner should match");
+        assertEq(storedSeed, seed, "Seed should match");
+        assertEq(storedCounter, 0, "Counter should be 0");
+        assertEq(storedOrderHash, orderHash, "Order hash should match");
+        assertEq(storedAmount, amount, "Amount should match");
+        assertEq(storedReward, reward, "Reward should match");
+
+        // Flat Fee goes straight to treasury, lb has not been funded yet
+        assertEq(luckyBuy.treasuryBalance(), flatFeeAmount);
         vm.stopPrank();
     }
 
@@ -530,7 +607,7 @@ contract TestLuckyBuyCommit is Test {
 
         // Deploy LuckyBuy from admin account
         vm.prank(admin);
-        LuckyBuy newLuckyBuy = new LuckyBuy(protocolFee, msg.sender);
+        LuckyBuy newLuckyBuy = new LuckyBuy(protocolFee, flatFee, msg.sender);
 
         // Verify the deployment address matches prediction
         assertEq(

@@ -19,8 +19,9 @@ import "src/LuckyBuy.sol";
 contract MockLuckyBuy is LuckyBuy {
     constructor(
         uint256 protocolFee_,
+        uint256 flatFee_,
         address feeReceiver_
-    ) LuckyBuy(protocolFee_, feeReceiver_) {}
+    ) LuckyBuy(protocolFee_, flatFee_, feeReceiver_) {}
 
     function fulfillOrder(
         address txTo_,
@@ -109,6 +110,7 @@ contract FulfillTest is Test {
         uint256 amount,
         uint256 reward,
         uint256 fee,
+        uint256 flatFee,
         bytes32 digest
     );
 
@@ -125,7 +127,7 @@ contract FulfillTest is Test {
             shouldRunTests = true;
 
             vm.startPrank(admin);
-            luckyBuy = new MockLuckyBuy(0, msg.sender);
+            luckyBuy = new MockLuckyBuy(0, 0, msg.sender);
             vm.deal(admin, 100 ether);
             vm.deal(address(this), 100 ether);
             vm.deal(user2, 100 ether);
@@ -220,6 +222,7 @@ contract FulfillTest is Test {
             orderHash, // orderHash
             COMMIT_AMOUNT, // amount
             REWARD, // reward
+            0,
             0,
             digest
         );
@@ -347,6 +350,7 @@ contract FulfillTest is Test {
             COMMIT_AMOUNT, // amount
             REWARD, // reward
             commitFee, // fee
+            0,
             fail_digest
         );
 
@@ -492,6 +496,7 @@ contract FulfillTest is Test {
             FAIL_COMMIT_AMOUNT, // amount
             REWARD, // reward
             0, // fee
+            0,
             fail_digest
         );
         vm.prank(RECEIVER);
@@ -810,6 +815,7 @@ contract FulfillTest is Test {
             COMMIT_AMOUNT, // amount
             REWARD, // reward
             0, // fee
+            0,
             digest
         );
         vm.prank(RECEIVER);

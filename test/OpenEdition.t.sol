@@ -9,8 +9,9 @@ import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 contract MockLuckyBuy is LuckyBuy {
     constructor(
         uint256 protocolFee_,
+        uint256 flatFee_,
         address feeReceiver_
-    ) LuckyBuy(protocolFee_, feeReceiver_) {}
+    ) LuckyBuy(protocolFee_, flatFee_, feeReceiver_) {}
 
     function setIsFulfilled(uint256 commitId_, bool isFulfilled_) public {
         isFulfilled[commitId_] = isFulfilled_;
@@ -34,6 +35,7 @@ contract TestLuckyBuyOpenEdition is Test {
     uint256 constant COSIGNER_PRIVATE_KEY = 1234;
     address cosigner;
     uint256 protocolFee = 0;
+    uint256 flatFee = 0;
 
     uint256 seed = 12345;
     address marketplace = address(0);
@@ -47,7 +49,7 @@ contract TestLuckyBuyOpenEdition is Test {
 
     function setUp() public {
         vm.startPrank(admin);
-        luckyBuy = new MockLuckyBuy(protocolFee, msg.sender);
+        luckyBuy = new MockLuckyBuy(protocolFee, flatFee, msg.sender);
         vm.deal(admin, 1000000 ether);
         vm.deal(user, 100000 ether);
 
