@@ -24,8 +24,6 @@ contract LuckyBuy is
     uint256 public openEditionTokenId;
     // The OE interface forces us to use uint32
     uint32 public openEditionTokenAmount;
-    uint32 public openEditionTokenLimit;
-    bytes32[] public openEditionTokenProof;
 
     CommitData[] public luckyBuys;
     mapping(bytes32 commitDigest => uint256 commitId) public commitIdByDigest;
@@ -93,14 +91,16 @@ contract LuckyBuy is
     event OpenEditionTokenSet(
         address indexed token,
         uint256 indexed tokenId,
-        uint256 amount,
-        uint256 limit,
-        bytes32[] proof
+        uint256 amount
     );
     event FlatFeeUpdated(uint256 oldFlatFee, uint256 newFlatFee);
     event FeeReceiverUpdated(
         address indexed oldFeeReceiver,
         address indexed newFeeReceiver
+    );
+    event OpenEditionContractTransferred(
+        address indexed oldOwner,
+        address indexed newOwner
     );
 
     error AlreadyCosigner();
@@ -311,12 +311,10 @@ contract LuckyBuy is
             );
         } else {
             if (openEditionToken != address(0)) {
-                IERC1155MInitializableV1_0_2(openEditionToken).authorizedMint(
+                IERC1155MInitializableV1_0_2(openEditionToken).ownerMint(
                     commitData.receiver,
                     openEditionTokenId,
-                    openEditionTokenAmount,
-                    openEditionTokenLimit,
-                    openEditionTokenProof
+                    openEditionTokenAmount
                 );
             }
             // emit the failure
@@ -495,27 +493,6 @@ contract LuckyBuy is
         emit CommitExpired(commitId_, hash(commitData));
     }
 
-    /// @notice Calculates fee amount based on input amount and fee percentage
-    /// @param _amount The amount to calculate fee on
-    /// @return The calculated fee amount
-    /// @dev Uses fee denominator of 10000 (100% = 10000)
-    function calculateProtocolFee(
-        uint256 _amount
-    ) external view returns (uint256) {
-        return _calculateProtocolFee(_amount);
-    }
-
-    function _calculateProtocolFee(
-        uint256 _amount
-    ) internal view returns (uint256) {
-        return (_amount * protocolFee) / BASE_POINTS;
-    }
-
-    // deprecated, for backwards compatibility
-    function calculateFee(uint256 _amount) external view returns (uint256) {
-        return _calculateProtocolFee(_amount);
-    }
-
     /// @notice Calculates contribution amount after removing fee
     /// @param amount The original amount including fee
     /// @return The contribution amount without the fee
@@ -538,6 +515,28 @@ contract LuckyBuy is
     }
 
     // ############################################################
+    // ############ MANAGEMENT ############
+    // ############################################################
+
+    function transferOpenEditionContractOwnership(
+        address newOwner
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldOwner = IERC1155MInitializableV1_0_2(openEditionToken)
+            .owner();
+        IERC1155MInitializableV1_0_2(openEditionToken).transferOwnership(
+            newOwner
+        );
+
+        _setOpenEditionToken(
+            openEditionToken,
+            openEditionTokenId,
+            openEditionTokenAmount
+        );
+
+        emit OpenEditionContractTransferred(oldOwner, newOwner);
+    }
+
+    // ############################################################
     // ############ GETTERS & SETTERS ############
     // ############################################################
 
@@ -551,51 +550,29 @@ contract LuckyBuy is
         uint256 tokenId_,
         uint32 amount_
     ) external onlyRole(OPS_ROLE) {
-        _setOpenEditionToken(token_, tokenId_, amount_, 0, new bytes32[](0));
-    }
-    /// @notice Sets the open edition token. We allow address(0) here.
-    /// @param token_ Address of the open edition token
-    /// @param tokenId_ ID of the open edition token
-    /// @param amount_ Amount of the open edition token. The OE interface forces us to use uint32
-    /// @dev Only callable by ops role
-    function setOpenEditionToken(
-        address token_,
-        uint256 tokenId_,
-        uint32 amount_,
-        uint32 limit_,
-        bytes32[] calldata proof_
-    ) external onlyRole(OPS_ROLE) {
-        _setOpenEditionToken(token_, tokenId_, amount_, limit_, proof_);
+        _setOpenEditionToken(token_, tokenId_, amount_);
     }
 
     function _setOpenEditionToken(
         address token_,
         uint256 tokenId_,
-        uint32 amount_,
-        uint32 limit_,
-        bytes32[] memory proof_
+        uint32 amount_
     ) internal {
         if (address(token_) == address(0)) {
             openEditionToken = address(0);
             openEditionTokenId = 0;
             openEditionTokenAmount = 0;
-            openEditionTokenLimit = 0;
-            openEditionTokenProof = new bytes32[](0);
         } else {
             if (amount_ == 0) revert InvalidAmount();
 
             openEditionToken = token_;
             openEditionTokenId = tokenId_;
             openEditionTokenAmount = amount_;
-            openEditionTokenLimit = limit_;
-            openEditionTokenProof = proof_;
         }
         emit OpenEditionTokenSet(
             openEditionToken,
             openEditionTokenId,
-            openEditionTokenAmount,
-            openEditionTokenLimit,
-            openEditionTokenProof
+            openEditionTokenAmount
         );
     }
 

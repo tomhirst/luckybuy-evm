@@ -5,28 +5,43 @@ import "forge-std/Test.sol";
 import "src/LuckyBuy.sol";
 
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-
+import {IERC1155MInitializableV1_0_2} from "src/common/interfaces/IERC1155MInitializableV1_0_2.sol";
 contract MockLuckyBuy is LuckyBuy {
+    address public owner;
     constructor(
         uint256 protocolFee_,
         uint256 flatFee_,
         address feeReceiver_
-    ) LuckyBuy(protocolFee_, flatFee_, feeReceiver_) {}
+    ) LuckyBuy(protocolFee_, flatFee_, feeReceiver_) {
+        owner = msg.sender;
+    }
 
     function setIsFulfilled(uint256 commitId_, bool isFulfilled_) public {
         isFulfilled[commitId_] = isFulfilled_;
     }
+
+    function transferOwnership(address newOwner) public {
+        owner = newOwner;
+    }
 }
 
-contract MockERC1155 is ERC1155 {
+// Some of these changes may be redundant, e.g. owner/admin but we are quickly swapping out implementations right now
+contract MockERC1155 is ERC1155, IERC1155MInitializableV1_0_2 {
     address public admin;
+    address public owner;
     modifier onlyAuthorizedMinter() {
         require(msg.sender == admin, "Only admin can call this function");
         _;
     }
 
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+
     constructor(string memory uri_, address admin_) ERC1155(uri_) {
         admin = admin_;
+        owner = msg.sender;
     }
 
     function mint(
@@ -36,22 +51,16 @@ contract MockERC1155 is ERC1155 {
     ) public onlyAuthorizedMinter {
         _mint(to, id, amount, "");
     }
-    /// @notice Allows authorized minters to mint tokens for a specified address
-    /// @param to The address to mint tokens for
-    /// @param tokenId The ID of the token to mint
-    /// @param qty The quantity to mint
-    /// @param limit The minting limit for the recipient (used in merkle proofs)
-    /// @param proof The merkle proof for allowlist minting
-    function authorizedMint(
+    function ownerMint(
         address to,
         uint256 tokenId,
-        uint32 qty,
-        uint32 limit,
-        bytes32[] calldata proof
-    ) external payable onlyAuthorizedMinter {
-        // limit and proof can be empty in the implementation
-        //_mintInternal(to, tokenId, qty, limit, proof);
+        uint32 qty
+    ) external onlyAuthorizedMinter {
         _mint(to, tokenId, qty, "");
+    }
+
+    function transferOwnership(address newOwner) public onlyOwner {
+        owner = newOwner;
     }
 }
 
@@ -84,6 +93,7 @@ contract TestLuckyBuyOpenEdition is Test {
 
         // set luckybuy as the minter
         openEditionToken = new MockERC1155("", address(luckyBuy));
+        openEditionToken.transferOwnership(address(luckyBuy));
 
         (bool success, ) = address(luckyBuy).call{value: 10000 ether}("");
         require(success, "Failed to deploy contract");
@@ -267,5 +277,18 @@ contract TestLuckyBuyOpenEdition is Test {
         vm.stopPrank();
 
         assertEq(openEditionToken.balanceOf(address(user), 1), 0);
+    }
+
+    // This is a very obtuse test.
+    // LuckyBuy Contract is the owner of the open edition token
+    // The owner of LuckyBuy Contract can tell LuckyBuy Contract to transfer ownership of the open edition token
+    // OwnerOf -> LuckyBuyContract
+    // LuckyBuyContract is OwnerOf -> OpenEditionToken
+    function testOpenEditionContractTransfer() public {
+        assertEq(openEditionToken.owner(), address(luckyBuy));
+
+        vm.prank(admin);
+        luckyBuy.transferOpenEditionContractOwnership(address(user));
+        assertEq(openEditionToken.owner(), address(user));
     }
 }
