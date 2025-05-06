@@ -1150,6 +1150,7 @@ contract TestLuckyBuyCommit is Test {
         vm.deal(address(this), amount);
 
         uint256 initialBalance = address(this).balance;
+        address initialReceiver = address(this);
 
         luckyBuy.commit{value: amount}(
             address(this),
@@ -1166,7 +1167,7 @@ contract TestLuckyBuyCommit is Test {
         vm.prank(cosigner);
         luckyBuy.expire(0);
 
-        assertEq(cosigner.balance, initialBalance);
+        assertEq(initialReceiver.balance, initialBalance);
         assertEq(luckyBuy.treasuryBalance(), initialTreasuryBalance);
         assertEq(luckyBuy.commitBalance(), initialCommitBalance);
         assertEq(luckyBuy.protocolBalance(), initialProtocolBalance);

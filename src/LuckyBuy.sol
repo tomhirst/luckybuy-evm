@@ -483,7 +483,7 @@ contract LuckyBuy is
 
         uint256 transferAmount = commitAmount + protocolFeesPaid;
 
-        (bool success, ) = payable(msg.sender).call{value: transferAmount}("");
+        (bool success, ) = payable(commitData.receiver).call{value: transferAmount}("");
         if (!success) revert TransferFailed();
 
         emit CommitExpired(commitId_, hash(commitData));
