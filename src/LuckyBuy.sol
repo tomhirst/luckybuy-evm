@@ -103,6 +103,19 @@ contract LuckyBuy is
         address indexed oldOwner,
         address indexed newOwner
     );
+    event FeeSplit(
+        uint256 indexed commitId,
+        address indexed feeSplitReceiver,
+        uint256 feeSplitPercentage,
+        uint256 totalProtocolFee,
+        uint256 splitAmount
+    );
+    event FeeTransferFailure(
+        uint256 indexed commitId,
+        address indexed feeSplitReceiver,
+        uint256 amount,
+        bytes32 digest
+    );
 
     error AlreadyCosigner();
     error AlreadyFulfilled();
@@ -122,6 +135,9 @@ contract LuckyBuy is
     error CommitNotExpired();
     error TransferFailed();
     error InvalidFeeReceiver();
+    error InvalidFeeSplitReceiver();
+    error InvalidFeeSplitPercentage();
+
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (
             luckyBuys[commitId_].receiver != msg.sender &&
@@ -163,7 +179,7 @@ contract LuckyBuy is
         uint256 seed_,
         bytes32 orderHash_,
         uint256 reward_
-    ) external payable whenNotPaused returns (uint256) {
+    ) public payable whenNotPaused returns (uint256) {
         if (msg.value == 0) revert InvalidAmount();
         if (!isCosigner[cosigner_]) revert InvalidCosigner();
         if (cosigner_ == address(0)) revert InvalidCosigner();
@@ -255,6 +271,96 @@ contract LuckyBuy is
         uint256 tokenId_,
         bytes calldata signature_
     ) public payable nonReentrant whenNotPaused {
+        _fulfill(
+            commitId_,
+            marketplace_,
+            orderData_,
+            orderAmount_,
+            token_,
+            tokenId_,
+            signature_
+        );
+    }
+
+    /// @notice Fulfills a commit with the result of the random number generation
+    /// @param commitId_ ID of the commit to fulfill
+    /// @param marketplace_ Address where the order should be executed
+    /// @param orderData_ Calldata for the order execution
+    /// @param orderAmount_ Amount of ETH to send with the order
+    /// @param token_ Address of the token being transferred (zero address for ETH)
+    /// @param tokenId_ ID of the token if it's an NFT
+    /// @param signature_ Signature used for random number generation
+    /// @param feeSplitReceiver_ Address of the fee split receiver
+    /// @param feeSplitPercentage_ Percentage of the fee to split relative to the protocol fees paid
+    /// @dev Emits a FeeSplit event on success
+    function fulfillWithFeeSplit(
+        uint256 commitId_,
+        address marketplace_,
+        bytes calldata orderData_,
+        uint256 orderAmount_,
+        address token_,
+        uint256 tokenId_,
+        bytes calldata signature_,
+        address feeSplitReceiver_,
+        uint256 feeSplitPercentage_
+    ) public payable nonReentrant whenNotPaused {
+        if (feeSplitReceiver_ == address(0)) revert InvalidFeeSplitReceiver();
+        if (feeSplitReceiver_ == address(this))
+            revert InvalidFeeSplitReceiver();
+        if (feeSplitPercentage_ > BASE_POINTS)
+            revert InvalidFeeSplitPercentage();
+
+        // Call fulfill as-is
+        _fulfill(
+            commitId_,
+            marketplace_,
+            orderData_,
+            orderAmount_,
+            token_,
+            tokenId_,
+            signature_
+        );
+
+        // All accounting is done in the fulfill function We will fetch to protocol fees that were transferred to the treasury and transfer the split amount from our treasury balance
+        uint256 protocolFeesPaid = feesPaid[commitId_];
+        uint256 splitAmount = (protocolFeesPaid * feeSplitPercentage_) /
+            BASE_POINTS;
+
+        (bool success, ) = payable(feeSplitReceiver_).call{value: splitAmount}(
+            ""
+        );
+
+        // This is deliberate. We do not want to block execution and will manually send fees to the receiver.
+        if (!success) {
+            emit FeeTransferFailure(
+                commitId_,
+                feeSplitReceiver_,
+                splitAmount,
+                hash(luckyBuys[commitId_])
+            );
+        } else {
+            // Subtract the split amount from the treasury balance
+            treasuryBalance -= splitAmount;
+        }
+
+        emit FeeSplit(
+            commitId_,
+            feeSplitReceiver_,
+            feeSplitPercentage_,
+            protocolFeesPaid,
+            splitAmount
+        );
+    }
+
+    function _fulfill(
+        uint256 commitId_,
+        address marketplace_,
+        bytes calldata orderData_,
+        uint256 orderAmount_,
+        address token_,
+        uint256 tokenId_,
+        bytes calldata signature_
+    ) internal {
         // validate tx
         if (msg.value > 0) _depositTreasury(msg.value);
         if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
@@ -290,6 +396,7 @@ contract LuckyBuy is
 
         // transfer the protocol fees to the contract
         uint256 protocolFeesPaid = feesPaid[commitData.id];
+
         treasuryBalance += protocolFeesPaid;
         protocolBalance -= protocolFeesPaid;
 
@@ -364,6 +471,40 @@ contract LuckyBuy is
                 token_,
                 tokenId_,
                 signature_
+            );
+    }
+
+    /// @notice Fulfills a commit with the result of the random number generation
+    /// @param commitDigest_ Digest of the commit to fulfill
+    /// @param marketplace_ Address where the order should be executed
+    /// @param orderData_ Calldata for the order execution
+    /// @param orderAmount_ Amount of ETH to send with the order
+    /// @param token_ Address of the token being transferred (zero address for ETH)
+    /// @param tokenId_ ID of the token if it's an NFT
+    /// @param signature_ Signature used for random number generation
+    /// @dev Emits a Fulfillment event on success
+    function fulfillByDigestWithFeeSplit(
+        bytes32 commitDigest_,
+        address marketplace_,
+        bytes calldata orderData_,
+        uint256 orderAmount_,
+        address token_,
+        uint256 tokenId_,
+        bytes calldata signature_,
+        address feeSplitReceiver_,
+        uint256 feeSplitPercentage_
+    ) public payable whenNotPaused {
+        return
+            fulfillWithFeeSplit(
+                commitIdByDigest[commitDigest_],
+                marketplace_,
+                orderData_,
+                orderAmount_,
+                token_,
+                tokenId_,
+                signature_,
+                feeSplitReceiver_,
+                feeSplitPercentage_
             );
     }
 
@@ -454,6 +595,7 @@ contract LuckyBuy is
         protocolBalance = 0;
 
         uint256 currentBalance = address(this).balance;
+
         (bool success, ) = payable(feeReceiver).call{value: currentBalance}("");
         if (!success) revert WithdrawalFailed();
 
