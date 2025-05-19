@@ -81,7 +81,11 @@ contract LuckyBuy is
     );
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
     event ProtocolFeeUpdated(uint256 oldProtocolFee, uint256 newProtocolFee);
-    event Withdrawal(address indexed sender, uint256 amount);
+    event Withdrawal(
+        address indexed sender,
+        uint256 amount,
+        address feeReceiver
+    );
     event Deposit(address indexed sender, uint256 amount);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event CommitExpireTimeUpdated(
@@ -116,6 +120,10 @@ contract LuckyBuy is
         uint256 amount,
         bytes32 digest
     );
+    event FeeReceiverManagerTransferred(
+        address indexed oldFeeReceiverManager,
+        address indexed newFeeReceiverManager
+    );
 
     error AlreadyCosigner();
     error AlreadyFulfilled();
@@ -137,6 +145,7 @@ contract LuckyBuy is
     error InvalidFeeReceiver();
     error InvalidFeeSplitReceiver();
     error InvalidFeeSplitPercentage();
+    error InvalidFeeReceiverManager();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (
@@ -152,7 +161,8 @@ contract LuckyBuy is
         uint256 protocolFee_,
         uint256 flatFee_,
         address feeReceiver_,
-        address prng_
+        address prng_,
+        address feeReceiverManager_
     ) MEAccessControl() SignatureVerifier("LuckyBuy", "1") {
         uint256 existingBalance = address(this).balance;
         if (existingBalance > 0) {
@@ -163,6 +173,7 @@ contract LuckyBuy is
         _setFlatFee(flatFee_);
         _setFeeReceiver(feeReceiver_);
         PRNG = IPRNG(prng_);
+        _grantRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiverManager_);
     }
 
     /// @notice Allows a user to commit funds for a chance to win
@@ -270,7 +281,7 @@ contract LuckyBuy is
         address token_,
         uint256 tokenId_,
         bytes calldata signature_
-    ) public payable nonReentrant whenNotPaused {
+    ) public payable whenNotPaused {
         _fulfill(
             commitId_,
             marketplace_,
@@ -303,7 +314,7 @@ contract LuckyBuy is
         bytes calldata signature_,
         address feeSplitReceiver_,
         uint256 feeSplitPercentage_
-    ) public payable nonReentrant whenNotPaused {
+    ) public payable whenNotPaused {
         if (feeSplitReceiver_ == address(0)) revert InvalidFeeSplitReceiver();
         if (feeSplitReceiver_ == address(this))
             revert InvalidFeeSplitReceiver();
@@ -360,7 +371,7 @@ contract LuckyBuy is
         address token_,
         uint256 tokenId_,
         bytes calldata signature_
-    ) internal {
+    ) internal nonReentrant {
         // validate tx
         if (msg.value > 0) _depositTreasury(msg.value);
         if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
@@ -579,7 +590,7 @@ contract LuckyBuy is
         (bool success, ) = payable(feeReceiver).call{value: amount}("");
         if (!success) revert WithdrawalFailed();
 
-        emit Withdrawal(msg.sender, amount);
+        emit Withdrawal(msg.sender, amount, feeReceiver);
     }
 
     /// @notice Allows the admin to withdraw all ETH from the contract
@@ -600,7 +611,7 @@ contract LuckyBuy is
         if (!success) revert WithdrawalFailed();
 
         _pause();
-        emit Withdrawal(msg.sender, currentBalance);
+        emit Withdrawal(msg.sender, currentBalance, feeReceiver);
     }
 
     /// @notice Allows the commit owner to expire a commit in the event that the commit is not or cannot be fulfilled
@@ -859,18 +870,36 @@ contract LuckyBuy is
         emit FlatFeeUpdated(oldFlatFee, flatFee_);
     }
 
+    function transferFeeReceiverManager(
+        address newFeeReceiverManager_
+    ) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
+        if (newFeeReceiverManager_ == address(0))
+            revert InvalidFeeReceiverManager();
+        _transferFeeReceiverManager(newFeeReceiverManager_);
+    }
+
+    function _transferFeeReceiverManager(
+        address newFeeReceiverManager_
+    ) internal {
+        _revokeRole(FEE_RECEIVER_MANAGER_ROLE, msg.sender);
+        _grantRole(FEE_RECEIVER_MANAGER_ROLE, newFeeReceiverManager_);
+        emit FeeReceiverManagerTransferred(msg.sender, newFeeReceiverManager_);
+    }
+
     /// @notice Sets the fee receiver
     /// @param feeReceiver_ Address to set as fee receiver
     /// @dev Only callable by admin role
     /// @dev Emits a FeeReceiverUpdated event
     function setFeeReceiver(
         address feeReceiver_
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
         _setFeeReceiver(feeReceiver_);
     }
 
     function _setFeeReceiver(address feeReceiver_) internal {
         if (feeReceiver_ == address(0)) revert InvalidFeeReceiver();
+        if (hasRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiver_))
+            revert InvalidFeeReceiverManager();
         address oldFeeReceiver = feeReceiver;
         feeReceiver = payable(feeReceiver_);
         emit FeeReceiverUpdated(oldFeeReceiver, feeReceiver_);
