@@ -2,6 +2,16 @@
 
 LuckyBuy is a decentralized protocol that enables probabilistic NFT purchases. Users can commit a fraction of an NFT's price for a proportional chance to win the NFT. If they win, they receive the NFT at a discount. If they don't win, they lose their committed amount.
 
+## Deployments
+
+Current Mainnet: 0x0178070d088c235e1dc2696d257f90b3ded475a3
+PRNG Mainnet: 0xBdAa680FcD544acc373c5f190449575768Ac4822
+Cosigner: 0x993f64E049F95d246dc7B0D196CB5dC419d4e1f1
+
+OpenEdition: 0x3e988D49b3dE913FcE7D4ea0037919345ebDC3F8
+Token Id: 0
+Amount: 1
+
 ## Overview
 
 The protocol works in three steps:
@@ -142,14 +152,6 @@ The fees can be configured by the contract admin:
 
 The protocol fee is limited to a maximum of 100% (10000 basis points).
 
-## Deployments
+## Verification
 
-Current Mainnet: 0xE6b247ea4dD0C77A3EF8d99a30b4877a779e1c9C
-Cosigner: 0x993f64E049F95d246dc7B0D196CB5dC419d4e1f1
-Fee Receiver: 0x85d31445AF0b0fF26851bf3C5e27e90058Df3270
-Fee Amount: 5%
-Flat Fee Amount: 0
-
-OpenEdition: 0x3e988D49b3dE913FcE7D4ea0037919345ebDC3F8
-Token Id: 0
-Amount: 1
+`forge verify-contract 0x0178070d088C235e1Dc2696D257f90B3ded475a3 src/LuckyBuy.sol:LuckyBuy --constructor-args $(cast abi-encode "constructor(uint256,uint256,address,address,address)" 500 825000000000000 0x2918F39540df38D4c33cda3bCA9edFccd8471cBE 0xBdAa680FcD544acc373c5f190449575768Ac4822 0x7C51fAEe5666B47b2F7E81b7a6A8DEf4C76D47E3) --chain-id 1 --watch`
