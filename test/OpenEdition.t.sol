@@ -3,34 +3,89 @@ pragma solidity 0.8.28;
 
 import "forge-std/Test.sol";
 import "src/LuckyBuy.sol";
-
+import "src/PRNG.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-
+import {IERC1155MInitializableV1_0_2} from "src/common/interfaces/IERC1155MInitializableV1_0_2.sol";
 contract MockLuckyBuy is LuckyBuy {
-    constructor(uint256 protocolFee_) LuckyBuy(protocolFee_) {}
+    address public owner;
+    constructor(
+        uint256 protocolFee_,
+        uint256 flatFee_,
+        address feeReceiver_,
+        address prng_,
+        address feeReceiverManager_
+    )
+        LuckyBuy(
+            protocolFee_,
+            flatFee_,
+            feeReceiver_,
+            prng_,
+            feeReceiverManager_
+        )
+    {
+        owner = msg.sender;
+    }
 
     function setIsFulfilled(uint256 commitId_, bool isFulfilled_) public {
         isFulfilled[commitId_] = isFulfilled_;
     }
+
+    function transferOwnership(address newOwner) public {
+        owner = newOwner;
+    }
 }
 
-contract MockERC1155 is ERC1155 {
-    constructor(string memory uri_) ERC1155(uri_) {}
+// Some of these changes may be redundant, e.g. owner/admin but we are quickly swapping out implementations right now
+contract MockERC1155 is ERC1155, IERC1155MInitializableV1_0_2 {
+    address public admin;
+    address public owner;
+    modifier onlyAuthorizedMinter() {
+        require(msg.sender == admin, "Only admin can call this function");
+        _;
+    }
 
-    function mint(address to, uint256 id, uint256 amount) public {
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+
+    constructor(string memory uri_, address admin_) ERC1155(uri_) {
+        admin = admin_;
+        owner = msg.sender;
+    }
+
+    function mint(
+        address to,
+        uint256 id,
+        uint256 amount
+    ) public onlyAuthorizedMinter {
         _mint(to, id, amount, "");
+    }
+    function ownerMint(
+        address to,
+        uint256 tokenId,
+        uint32 qty
+    ) external onlyAuthorizedMinter {
+        _mint(to, tokenId, qty, "");
+    }
+
+    function transferOwnership(address newOwner) public onlyOwner {
+        owner = newOwner;
     }
 }
 
 contract TestLuckyBuyOpenEdition is Test {
+    PRNG prng;
     MockLuckyBuy luckyBuy;
     MockERC1155 openEditionToken;
     address admin = address(0x1);
     address user = address(0x2);
+    address feeReceiverManager = address(0x3);
 
     uint256 constant COSIGNER_PRIVATE_KEY = 1234;
     address cosigner;
     uint256 protocolFee = 0;
+    uint256 flatFee = 0;
 
     uint256 seed = 12345;
     address marketplace = address(0);
@@ -44,12 +99,20 @@ contract TestLuckyBuyOpenEdition is Test {
 
     function setUp() public {
         vm.startPrank(admin);
-        luckyBuy = new MockLuckyBuy(protocolFee);
+        prng = new PRNG();
+        luckyBuy = new MockLuckyBuy(
+            protocolFee,
+            flatFee,
+            msg.sender,
+            address(prng),
+            feeReceiverManager
+        );
         vm.deal(admin, 1000000 ether);
         vm.deal(user, 100000 ether);
 
-        openEditionToken = new MockERC1155("");
-        openEditionToken.mint(address(luckyBuy), 1, 1000000);
+        // set luckybuy as the minter
+        openEditionToken = new MockERC1155("", address(luckyBuy));
+        openEditionToken.transferOwnership(address(luckyBuy));
 
         (bool success, ) = address(luckyBuy).call{value: 10000 ether}("");
         require(success, "Failed to deploy contract");
@@ -97,7 +160,6 @@ contract TestLuckyBuyOpenEdition is Test {
 
     function testOpenEdition() public {
         // out of base points
-
         vm.prank(admin);
 
         uint256 commitAmount = 0.01 ether;
@@ -161,6 +223,11 @@ contract TestLuckyBuyOpenEdition is Test {
         );
         vm.stopPrank();
 
+        console.log(luckyBuy.PRNG().rng(signature));
+        // log the recovered cosigner
+
+        console.log(cosigner);
+        console.log(_cosigner);
         assertEq(openEditionToken.balanceOf(address(user), 1), 1);
     }
     function testOpenEditionTransferFail() public {
@@ -233,5 +300,19 @@ contract TestLuckyBuyOpenEdition is Test {
         vm.stopPrank();
 
         assertEq(openEditionToken.balanceOf(address(user), 1), 0);
+    }
+
+    // This is a very obtuse test.
+    // LuckyBuy Contract is the owner of the open edition token
+    // The owner of LuckyBuy Contract can tell LuckyBuy Contract to transfer ownership of the open edition token
+    // OwnerOf -> LuckyBuyContract
+    // LuckyBuyContract is OwnerOf -> OpenEditionToken
+    function testOpenEditionContractTransfer() public {
+        assertEq(openEditionToken.owner(), address(luckyBuy));
+
+        vm.prank(admin);
+        luckyBuy.transferOpenEditionContractOwnership(address(user));
+        // luckyBuyOwner is still the same.
+        assertEq(openEditionToken.owner(), address(user));
     }
 }

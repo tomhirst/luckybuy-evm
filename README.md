@@ -2,6 +2,16 @@
 
 LuckyBuy is a decentralized protocol that enables probabilistic NFT purchases. Users can commit a fraction of an NFT's price for a proportional chance to win the NFT. If they win, they receive the NFT at a discount. If they don't win, they lose their committed amount.
 
+## Deployments
+
+Current Mainnet: 0x0178070d088c235e1dc2696d257f90b3ded475a3
+PRNG Mainnet: 0xBdAa680FcD544acc373c5f190449575768Ac4822
+Cosigner: 0x993f64E049F95d246dc7B0D196CB5dC419d4e1f1
+
+OpenEdition: 0x3e988D49b3dE913FcE7D4ea0037919345ebDC3F8
+Token Id: 0
+Amount: 1
+
 ## Overview
 
 The protocol works in three steps:
@@ -20,6 +30,7 @@ The protocol works in three steps:
 - Commit expiration system
 - Configurable protocol fees and minimum rewards
 - Access control system
+- Fee Receiver: 0x85d31445AF0b0fF26851bf3C5e27e90058Df3270
 
 ## Architecture
 
@@ -92,3 +103,55 @@ The protocol has several critical security considerations that should be careful
    - The commit/reveal scheme helps protect against front-running.
 
 These security considerations should be carefully reviewed during the security audit, with particular attention to the cosigner system and random number generation implementation.
+
+## Fee Calculations
+
+The LuckyBuy protocol implements a two-tier fee structure:
+
+### Fee Structure
+
+1. **Flat Fee**: A fixed amount taken off the top of every commit. This pays for the transfer fee of the Open Edition token
+
+   - This fee is added directly to the treasury balance
+   - It is not subject to the protocol fee calculation
+   - It is not returned to the user, even if the commit expires
+
+2. **Protocol Fee**: A percentage-based fee calculated on the amount after the flat fee
+   - This fee is calculated using the formula: `protocolFee = (amount * protocolFee) / BASE_POINTS`
+   - The protocol fee is tracked separately in the `protocolBalance`
+   - It is returned to the user if the commit expires
+
+### Fee Calculation Process
+
+When a user commits funds, the following calculations occur:
+
+1. The flat fee is subtracted from the total amount sent: `amountAfterFlatFee = msg.value - flatFee`
+2. The commit amount is calculated by applying the protocol fee formula to the amount after flat fee: `commitAmount = (amountAfterFlatFee * BASE_POINTS) / (BASE_POINTS + protocolFee)`
+3. The protocol fee is calculated as the difference: `protocolFee = amountAfterFlatFee - commitAmount`
+
+### Example Calculation
+
+For a commit with:
+
+- Total amount sent: 1.01 ETH
+- Flat fee: 0.01 ETH
+- Protocol fee: 5% (500 basis points)
+
+The calculation would be:
+
+1. Amount after flat fee: 1.01 ETH - 0.01 ETH = 1 ETH
+2. Protocol fee: 1 ETH \* 5% = 0.05 ETH
+3. Commit amount: 0.95 ETH
+
+### Fee Configuration
+
+The fees can be configured by the contract admin:
+
+- `setFlatFee(uint256 flatFee_)`: Sets the flat fee amount
+- `setProtocolFee(uint256 protocolFee_)`: Sets the protocol fee percentage (in basis points)
+
+The protocol fee is limited to a maximum of 100% (10000 basis points).
+
+## Verification
+
+`forge verify-contract 0x0178070d088C235e1Dc2696D257f90B3ded475a3 src/LuckyBuy.sol:LuckyBuy --constructor-args $(cast abi-encode "constructor(uint256,uint256,address,address,address)" 500 825000000000000 0x2918F39540df38D4c33cda3bCA9edFccd8471cBE 0xBdAa680FcD544acc373c5f190449575768Ac4822 0x7C51fAEe5666B47b2F7E81b7a6A8DEf4C76D47E3) --chain-id 1 --watch`

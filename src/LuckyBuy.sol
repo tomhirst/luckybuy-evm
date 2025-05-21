@@ -1,26 +1,29 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
 import "./common/SignatureVerifier.sol";
 
-import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import {IERC1155MInitializableV1_0_2} from "./common/interfaces/IERC1155MInitializableV1_0_2.sol";
+
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./common/MEAccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "./PRNG.sol";
+import {IPRNG} from "./common/interfaces/IPRNG.sol";
 
 contract LuckyBuy is
     MEAccessControl,
     Pausable,
     SignatureVerifier,
-    PRNG,
     ReentrancyGuard
 {
+    IPRNG public PRNG;
+    address payable public feeReceiver;
     // We will not track our supply on this contract. We will mint a yuge amount and never run out on the oe.
     address public openEditionToken;
     uint256 public openEditionTokenId;
-    uint256 public openEditionTokenAmount;
+    // The OE interface forces us to use uint32
+    uint32 public openEditionTokenAmount;
 
     CommitData[] public luckyBuys;
     mapping(bytes32 commitDigest => uint256 commitId) public commitIdByDigest;
@@ -31,12 +34,14 @@ contract LuckyBuy is
     uint256 public maxReward = 50 ether;
     uint256 public protocolFee = 0;
     uint256 public minReward = BASE_POINTS;
+    uint256 public flatFee = 0;
 
     uint256 public commitExpireTime = 1 days;
     mapping(uint256 commitId => uint256 expiresAt) public commitExpiresAt;
 
     uint256 public constant MIN_COMMIT_EXPIRE_TIME = 1 minutes;
     uint256 public constant ONE_PERCENT = 100;
+    uint256 public constant BASE_POINTS = 10000;
 
     mapping(address cosigner => bool active) public isCosigner;
     mapping(address receiver => uint256 counter) public luckyBuyCount;
@@ -55,7 +60,8 @@ contract LuckyBuy is
         bytes32 orderHash,
         uint256 amount,
         uint256 reward,
-        uint256 fee,
+        uint256 protocolFee,
+        uint256 flatFee,
         bytes32 digest
     );
     event CosignerAdded(address indexed cosigner);
@@ -75,7 +81,11 @@ contract LuckyBuy is
     );
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
     event ProtocolFeeUpdated(uint256 oldProtocolFee, uint256 newProtocolFee);
-    event Withdrawal(address indexed sender, uint256 amount);
+    event Withdrawal(
+        address indexed sender,
+        uint256 amount,
+        address feeReceiver
+    );
     event Deposit(address indexed sender, uint256 amount);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event CommitExpireTimeUpdated(
@@ -87,6 +97,32 @@ contract LuckyBuy is
         address indexed token,
         uint256 indexed tokenId,
         uint256 amount
+    );
+    event FlatFeeUpdated(uint256 oldFlatFee, uint256 newFlatFee);
+    event FeeReceiverUpdated(
+        address indexed oldFeeReceiver,
+        address indexed newFeeReceiver
+    );
+    event OpenEditionContractTransferred(
+        address indexed oldOwner,
+        address indexed newOwner
+    );
+    event FeeSplit(
+        uint256 indexed commitId,
+        address indexed feeSplitReceiver,
+        uint256 feeSplitPercentage,
+        uint256 totalProtocolFee,
+        uint256 splitAmount
+    );
+    event FeeTransferFailure(
+        uint256 indexed commitId,
+        address indexed feeSplitReceiver,
+        uint256 amount,
+        bytes32 digest
+    );
+    event FeeReceiverManagerTransferred(
+        address indexed oldFeeReceiverManager,
+        address indexed newFeeReceiverManager
     );
 
     error AlreadyCosigner();
@@ -106,6 +142,10 @@ contract LuckyBuy is
     error CommitIsExpired();
     error CommitNotExpired();
     error TransferFailed();
+    error InvalidFeeReceiver();
+    error InvalidFeeSplitReceiver();
+    error InvalidFeeSplitPercentage();
+    error InvalidFeeReceiverManager();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (
@@ -118,7 +158,11 @@ contract LuckyBuy is
     /// @notice Constructor initializes the contract and handles any pre-existing balance
     /// @dev Sets up EIP712 domain separator and deposits any ETH sent during deployment
     constructor(
-        uint256 protocolFee_
+        uint256 protocolFee_,
+        uint256 flatFee_,
+        address feeReceiver_,
+        address prng_,
+        address feeReceiverManager_
     ) MEAccessControl() SignatureVerifier("LuckyBuy", "1") {
         uint256 existingBalance = address(this).balance;
         if (existingBalance > 0) {
@@ -126,6 +170,10 @@ contract LuckyBuy is
         }
 
         _setProtocolFee(protocolFee_);
+        _setFlatFee(flatFee_);
+        _setFeeReceiver(feeReceiver_);
+        PRNG = IPRNG(prng_);
+        _grantRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiverManager_);
     }
 
     /// @notice Allows a user to commit funds for a chance to win
@@ -142,7 +190,7 @@ contract LuckyBuy is
         uint256 seed_,
         bytes32 orderHash_,
         uint256 reward_
-    ) external payable whenNotPaused returns (uint256) {
+    ) public payable whenNotPaused returns (uint256) {
         if (msg.value == 0) revert InvalidAmount();
         if (!isCosigner[cosigner_]) revert InvalidCosigner();
         if (cosigner_ == address(0)) revert InvalidCosigner();
@@ -151,24 +199,35 @@ contract LuckyBuy is
         if (reward_ < minReward) revert InvalidReward();
         if (reward_ == 0) revert InvalidReward();
 
-        uint256 amountWithoutFee = calculateContributionWithoutFee(msg.value);
+        uint256 amountWithoutFlatFee = msg.value - flatFee;
 
-        if (amountWithoutFee < (reward_ / ONE_PERCENT)) revert InvalidAmount();
+        // We collect the flat fee regardless of the amount. It is not returned to the user, ever.
+        treasuryBalance += flatFee;
 
-        uint256 fee = msg.value - amountWithoutFee;
+        // This is the amount the user wants to commit
+        uint256 commitAmount = calculateContributionWithoutFee(
+            amountWithoutFlatFee
+        );
 
-        if (amountWithoutFee > reward_) revert InvalidAmount();
+        // The commit amount must be greater than one percent of the reward
+        if (commitAmount < (reward_ / ONE_PERCENT)) revert InvalidAmount();
+
+        // The fee is the amount without the flat fee minus the amount without the protocol fee
+        uint256 protocolFee = amountWithoutFlatFee - commitAmount;
+
+        // The commit amount must be less than the reward
+        if (commitAmount > reward_) revert InvalidAmount();
 
         // Check if odds are greater than 100%
-        if ((amountWithoutFee * BASE_POINTS) / reward_ > BASE_POINTS)
+        if ((commitAmount * BASE_POINTS) / reward_ > BASE_POINTS)
             revert InvalidAmount();
 
         uint256 commitId = luckyBuys.length;
         uint256 userCounter = luckyBuyCount[receiver_]++;
 
-        feesPaid[commitId] = fee;
-        protocolBalance += fee;
-        commitBalance += amountWithoutFee;
+        feesPaid[commitId] = protocolFee;
+        protocolBalance += protocolFee;
+        commitBalance += commitAmount;
 
         CommitData memory commitData = CommitData({
             id: commitId,
@@ -177,7 +236,7 @@ contract LuckyBuy is
             seed: seed_,
             counter: userCounter,
             orderHash: orderHash_,
-            amount: amountWithoutFee,
+            amount: commitAmount,
             reward: reward_
         });
 
@@ -195,9 +254,10 @@ contract LuckyBuy is
             seed_,
             userCounter,
             orderHash_, // Relay tx properties: to, data, value
-            amountWithoutFee,
+            commitAmount,
             reward_,
-            fee,
+            protocolFee,
+            flatFee,
             digest
         );
 
@@ -221,7 +281,97 @@ contract LuckyBuy is
         address token_,
         uint256 tokenId_,
         bytes calldata signature_
-    ) public payable nonReentrant whenNotPaused {
+    ) public payable whenNotPaused {
+        _fulfill(
+            commitId_,
+            marketplace_,
+            orderData_,
+            orderAmount_,
+            token_,
+            tokenId_,
+            signature_
+        );
+    }
+
+    /// @notice Fulfills a commit with the result of the random number generation
+    /// @param commitId_ ID of the commit to fulfill
+    /// @param marketplace_ Address where the order should be executed
+    /// @param orderData_ Calldata for the order execution
+    /// @param orderAmount_ Amount of ETH to send with the order
+    /// @param token_ Address of the token being transferred (zero address for ETH)
+    /// @param tokenId_ ID of the token if it's an NFT
+    /// @param signature_ Signature used for random number generation
+    /// @param feeSplitReceiver_ Address of the fee split receiver
+    /// @param feeSplitPercentage_ Percentage of the fee to split relative to the protocol fees paid
+    /// @dev Emits a FeeSplit event on success
+    function fulfillWithFeeSplit(
+        uint256 commitId_,
+        address marketplace_,
+        bytes calldata orderData_,
+        uint256 orderAmount_,
+        address token_,
+        uint256 tokenId_,
+        bytes calldata signature_,
+        address feeSplitReceiver_,
+        uint256 feeSplitPercentage_
+    ) public payable whenNotPaused {
+        if (feeSplitReceiver_ == address(0)) revert InvalidFeeSplitReceiver();
+        if (feeSplitReceiver_ == address(this))
+            revert InvalidFeeSplitReceiver();
+        if (feeSplitPercentage_ > BASE_POINTS)
+            revert InvalidFeeSplitPercentage();
+
+        // Call fulfill as-is
+        _fulfill(
+            commitId_,
+            marketplace_,
+            orderData_,
+            orderAmount_,
+            token_,
+            tokenId_,
+            signature_
+        );
+
+        // All accounting is done in the fulfill function We will fetch to protocol fees that were transferred to the treasury and transfer the split amount from our treasury balance
+        uint256 protocolFeesPaid = feesPaid[commitId_];
+        uint256 splitAmount = (protocolFeesPaid * feeSplitPercentage_) /
+            BASE_POINTS;
+
+        (bool success, ) = payable(feeSplitReceiver_).call{value: splitAmount}(
+            ""
+        );
+
+        // This is deliberate. We do not want to block execution and will manually send fees to the receiver.
+        if (!success) {
+            emit FeeTransferFailure(
+                commitId_,
+                feeSplitReceiver_,
+                splitAmount,
+                hash(luckyBuys[commitId_])
+            );
+        } else {
+            // Subtract the split amount from the treasury balance
+            treasuryBalance -= splitAmount;
+        }
+
+        emit FeeSplit(
+            commitId_,
+            feeSplitReceiver_,
+            feeSplitPercentage_,
+            protocolFeesPaid,
+            splitAmount
+        );
+    }
+
+    function _fulfill(
+        uint256 commitId_,
+        address marketplace_,
+        bytes calldata orderData_,
+        uint256 orderAmount_,
+        address token_,
+        uint256 tokenId_,
+        bytes calldata signature_
+    ) internal nonReentrant {
         // validate tx
         if (msg.value > 0) _depositTreasury(msg.value);
         if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
@@ -257,12 +407,13 @@ contract LuckyBuy is
 
         // transfer the protocol fees to the contract
         uint256 protocolFeesPaid = feesPaid[commitData.id];
+
         treasuryBalance += protocolFeesPaid;
         protocolBalance -= protocolFeesPaid;
 
         // calculate the odds in base points
         uint256 odds = _calculateOdds(commitData.amount, commitData.reward);
-        uint256 rng = _rng(signature_);
+        uint256 rng = PRNG.rng(signature_);
         bool win = rng < odds;
 
         if (win) {
@@ -281,12 +432,10 @@ contract LuckyBuy is
             );
         } else {
             if (openEditionToken != address(0)) {
-                IERC1155(openEditionToken).safeTransferFrom(
-                    address(this),
+                IERC1155MInitializableV1_0_2(openEditionToken).ownerMint(
                     commitData.receiver,
                     openEditionTokenId,
-                    openEditionTokenAmount,
-                    ""
+                    openEditionTokenAmount
                 );
             }
             // emit the failure
@@ -336,6 +485,40 @@ contract LuckyBuy is
             );
     }
 
+    /// @notice Fulfills a commit with the result of the random number generation
+    /// @param commitDigest_ Digest of the commit to fulfill
+    /// @param marketplace_ Address where the order should be executed
+    /// @param orderData_ Calldata for the order execution
+    /// @param orderAmount_ Amount of ETH to send with the order
+    /// @param token_ Address of the token being transferred (zero address for ETH)
+    /// @param tokenId_ ID of the token if it's an NFT
+    /// @param signature_ Signature used for random number generation
+    /// @dev Emits a Fulfillment event on success
+    function fulfillByDigestWithFeeSplit(
+        bytes32 commitDigest_,
+        address marketplace_,
+        bytes calldata orderData_,
+        uint256 orderAmount_,
+        address token_,
+        uint256 tokenId_,
+        bytes calldata signature_,
+        address feeSplitReceiver_,
+        uint256 feeSplitPercentage_
+    ) public payable whenNotPaused {
+        return
+            fulfillWithFeeSplit(
+                commitIdByDigest[commitDigest_],
+                marketplace_,
+                orderData_,
+                orderAmount_,
+                token_,
+                tokenId_,
+                signature_,
+                feeSplitReceiver_,
+                feeSplitPercentage_
+            );
+    }
+
     function _handleWin(
         CommitData memory commitData,
         address marketplace_,
@@ -369,15 +552,11 @@ contract LuckyBuy is
                 digest
             );
         } else {
-            // Order failed, transfer the eth commit + fees back to the receiver
-            uint256 protocolFeesPaid = feesPaid[commitData.id];
-
-            uint256 transferAmount = commitData.amount + protocolFeesPaid;
-
-            treasuryBalance -= transferAmount;
+            // The order failed to fulfill, it could be bought already or invalid, make the best effort to send the user the value of the order they won.
+            treasuryBalance -= orderAmount_;
 
             // This can also revert if the receiver is a contract that doesn't accept ETH
-            (bool success, ) = commitData.receiver.call{value: transferAmount}(
+            (bool success, ) = commitData.receiver.call{value: orderAmount_}(
                 ""
             );
             if (!success) revert TransferFailed();
@@ -390,7 +569,7 @@ contract LuckyBuy is
                 win_,
                 address(0),
                 0,
-                transferAmount,
+                orderAmount_,
                 commitData.receiver,
                 protocolFeesPaid,
                 digest
@@ -408,10 +587,10 @@ contract LuckyBuy is
         if (amount > treasuryBalance) revert InsufficientBalance();
         treasuryBalance -= amount;
 
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        (bool success, ) = payable(feeReceiver).call{value: amount}("");
         if (!success) revert WithdrawalFailed();
 
-        emit Withdrawal(msg.sender, amount);
+        emit Withdrawal(msg.sender, amount, feeReceiver);
     }
 
     /// @notice Allows the admin to withdraw all ETH from the contract
@@ -427,11 +606,12 @@ contract LuckyBuy is
         protocolBalance = 0;
 
         uint256 currentBalance = address(this).balance;
-        (bool success, ) = payable(msg.sender).call{value: currentBalance}("");
+
+        (bool success, ) = payable(feeReceiver).call{value: currentBalance}("");
         if (!success) revert WithdrawalFailed();
 
         _pause();
-        emit Withdrawal(msg.sender, currentBalance);
+        emit Withdrawal(msg.sender, currentBalance, feeReceiver);
     }
 
     /// @notice Allows the commit owner to expire a commit in the event that the commit is not or cannot be fulfilled
@@ -459,22 +639,12 @@ contract LuckyBuy is
 
         uint256 transferAmount = commitAmount + protocolFeesPaid;
 
-        (bool success, ) = payable(msg.sender).call{value: transferAmount}("");
+        (bool success, ) = payable(commitData.receiver).call{
+            value: transferAmount
+        }("");
         if (!success) revert TransferFailed();
 
         emit CommitExpired(commitId_, hash(commitData));
-    }
-
-    /// @notice Calculates fee amount based on input amount and fee percentage
-    /// @param _amount The amount to calculate fee on
-    /// @return The calculated fee amount
-    /// @dev Uses fee denominator of 10000 (100% = 10000)
-    function calculateFee(uint256 _amount) external view returns (uint256) {
-        return _calculateFee(_amount);
-    }
-
-    function _calculateFee(uint256 _amount) internal view returns (uint256) {
-        return (_amount * protocolFee) / BASE_POINTS;
     }
 
     /// @notice Calculates contribution amount after removing fee
@@ -499,32 +669,65 @@ contract LuckyBuy is
     }
 
     // ############################################################
+    // ############ MANAGEMENT ############
+    // ############################################################
+
+    function transferOpenEditionContractOwnership(
+        address newOwner
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldOwner = IERC1155MInitializableV1_0_2(openEditionToken)
+            .owner();
+        IERC1155MInitializableV1_0_2(openEditionToken).transferOwnership(
+            newOwner
+        );
+
+        _setOpenEditionToken(
+            openEditionToken,
+            openEditionTokenId,
+            openEditionTokenAmount
+        );
+
+        emit OpenEditionContractTransferred(oldOwner, newOwner);
+    }
+
+    // ############################################################
     // ############ GETTERS & SETTERS ############
     // ############################################################
 
     /// @notice Sets the open edition token. We allow address(0) here.
     /// @param token_ Address of the open edition token
     /// @param tokenId_ ID of the open edition token
-    /// @param amount_ Amount of the open edition token
+    /// @param amount_ Amount of the open edition token. The OE interface forces us to use uint32
     /// @dev Only callable by ops role
     function setOpenEditionToken(
         address token_,
         uint256 tokenId_,
-        uint256 amount_
+        uint32 amount_
     ) external onlyRole(OPS_ROLE) {
+        _setOpenEditionToken(token_, tokenId_, amount_);
+    }
+
+    function _setOpenEditionToken(
+        address token_,
+        uint256 tokenId_,
+        uint32 amount_
+    ) internal {
         if (address(token_) == address(0)) {
             openEditionToken = address(0);
             openEditionTokenId = 0;
             openEditionTokenAmount = 0;
-            emit OpenEditionTokenSet(token_, 0, 0);
         } else {
             if (amount_ == 0) revert InvalidAmount();
 
             openEditionToken = token_;
             openEditionTokenId = tokenId_;
             openEditionTokenAmount = amount_;
-            emit OpenEditionTokenSet(token_, tokenId_, amount_);
         }
+        emit OpenEditionTokenSet(
+            openEditionToken,
+            openEditionTokenId,
+            openEditionTokenAmount
+        );
     }
 
     /// @notice Adds a new authorized cosigner
@@ -651,5 +854,54 @@ contract LuckyBuy is
         uint256 oldProtocolFee = protocolFee;
         protocolFee = protocolFee_;
         emit ProtocolFeeUpdated(oldProtocolFee, protocolFee_);
+    }
+
+    /// @notice Sets the flat fee. Is a static amount that comes off the top of the commit amount.
+    /// @param flatFee_ New flat fee
+    /// @dev Only callable by ops role
+    /// @dev Emits a FlatFeeUpdated event
+    function setFlatFee(uint256 flatFee_) external onlyRole(OPS_ROLE) {
+        _setFlatFee(flatFee_);
+    }
+
+    function _setFlatFee(uint256 flatFee_) internal {
+        uint256 oldFlatFee = flatFee;
+        flatFee = flatFee_;
+        emit FlatFeeUpdated(oldFlatFee, flatFee_);
+    }
+
+    function transferFeeReceiverManager(
+        address newFeeReceiverManager_
+    ) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
+        if (newFeeReceiverManager_ == address(0))
+            revert InvalidFeeReceiverManager();
+        _transferFeeReceiverManager(newFeeReceiverManager_);
+    }
+
+    function _transferFeeReceiverManager(
+        address newFeeReceiverManager_
+    ) internal {
+        _revokeRole(FEE_RECEIVER_MANAGER_ROLE, msg.sender);
+        _grantRole(FEE_RECEIVER_MANAGER_ROLE, newFeeReceiverManager_);
+        emit FeeReceiverManagerTransferred(msg.sender, newFeeReceiverManager_);
+    }
+
+    /// @notice Sets the fee receiver
+    /// @param feeReceiver_ Address to set as fee receiver
+    /// @dev Only callable by admin role
+    /// @dev Emits a FeeReceiverUpdated event
+    function setFeeReceiver(
+        address feeReceiver_
+    ) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
+        _setFeeReceiver(feeReceiver_);
+    }
+
+    function _setFeeReceiver(address feeReceiver_) internal {
+        if (feeReceiver_ == address(0)) revert InvalidFeeReceiver();
+        if (hasRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiver_))
+            revert InvalidFeeReceiverManager();
+        address oldFeeReceiver = feeReceiver;
+        feeReceiver = payable(feeReceiver_);
+        emit FeeReceiverUpdated(oldFeeReceiver, feeReceiver_);
     }
 }
