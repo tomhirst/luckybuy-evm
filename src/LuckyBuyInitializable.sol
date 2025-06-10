@@ -8,7 +8,9 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {MEAccessControlUpgradeable} from "./common/MEAccessControlUpgradeable.sol";
 import {SignatureVerifierUpgradeable} from "./common/SignatureVerifierUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IPRNG} from "./common/interfaces/IPRNG.sol";
+
 
 contract LuckyBuyInitializable is
     MEAccessControlUpgradeable,
@@ -149,6 +151,8 @@ contract LuckyBuyInitializable is
     error InvalidFeeSplitReceiver();
     error InvalidFeeSplitPercentage();
     error InvalidFeeReceiverManager();
+    error InitialOwnerCannotBeZero();
+    error NewImplementationCannotBeZero();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (
@@ -173,6 +177,8 @@ contract LuckyBuyInitializable is
         address prng_,
         address feeReceiverManager_
     ) public initializer {
+        if (initialOwner_ == address(0)) revert InitialOwnerCannotBeZero();
+
         __MEAccessControl_init(initialOwner_);
         __Pausable_init();
         __SignatureVerifier_init("LuckyBuy", "1");
@@ -195,7 +201,9 @@ contract LuckyBuyInitializable is
     }
 
     /// @dev Overriden to prevent unauthorized upgrades.
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newImplementation == address(0)) revert NewImplementationCannotBeZero();
+    }
 
     /// @notice Allows a user to commit funds for a chance to win
     /// @param receiver_ Address that will receive the NFT/ETH if won
