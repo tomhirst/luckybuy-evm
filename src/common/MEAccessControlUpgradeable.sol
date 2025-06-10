@@ -15,10 +15,6 @@ contract MEAccessControlUpgradeable is AccessControlUpgradeable {
 
     error InvalidOwner();
 
-    constructor() {
-        _disableInitializers();
-    }
-
     function __MEAccessControl_init(address initialOwner_) internal onlyInitializing {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, initialOwner_);

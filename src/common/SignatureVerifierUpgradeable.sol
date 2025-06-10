@@ -9,10 +9,6 @@ import "./interfaces/ISignatureVerifier.sol";
 contract SignatureVerifierUpgradeable is ISignatureVerifier, EIP712Upgradeable {
     using ECDSA for bytes32;
 
-    constructor() {
-        _disableInitializers();
-    }
-
     function __SignatureVerifier_init(
         string memory name,
         string memory version
