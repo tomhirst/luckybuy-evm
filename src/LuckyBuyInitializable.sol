@@ -31,10 +31,10 @@ contract LuckyBuyInitializable is
     uint256 public treasuryBalance; // The contract balance
     uint256 public commitBalance; // The open commit balances
     uint256 public protocolBalance; // The protocol fees for the open commits
-    uint256 public maxReward = 50 ether;
-    uint256 public protocolFee = 0;
-    uint256 public minReward = BASE_POINTS;
-    uint256 public flatFee = 0;
+    uint256 public maxReward;
+    uint256 public protocolFee;
+    uint256 public minReward;
+    uint256 public flatFee;
 
     uint256 public commitExpireTime = 1 days;
     mapping(uint256 commitId => uint256 expiresAt) public commitExpiresAt;
@@ -188,6 +188,10 @@ contract LuckyBuyInitializable is
         _setFeeReceiver(feeReceiver_);
         PRNG = IPRNG(prng_);
         _grantRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiverManager_);
+        
+        // Initialize reward limits
+        maxReward = 50 ether;
+        minReward = BASE_POINTS;
     }
 
     /// @dev Overriden to prevent unauthorized upgrades.
