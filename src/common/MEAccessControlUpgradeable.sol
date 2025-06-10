@@ -20,6 +20,7 @@ contract MEAccessControlUpgradeable is AccessControlUpgradeable {
     }
 
     function __MEAccessControl_init(address initialOwner_) internal onlyInitializing {
+        __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, initialOwner_);
         _grantRole(OPS_ROLE, initialOwner_);
     }
