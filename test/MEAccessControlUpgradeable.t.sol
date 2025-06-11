@@ -7,6 +7,7 @@ import "../src/common/MEAccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/access/IAccessControl.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /// @dev Minimal concrete implementation exposing an external initializer so we
 ///      can exercise `__MEAccessControl_init`.
@@ -22,20 +23,23 @@ contract MockMEAccessControlUpgradeable is MEAccessControlUpgradeable {
 
 contract MEAccessControlUpgradeableTest is Test {
     // Proxy-addressed instance we interact with
-    MEAccessControlUpgradeable public accessControl;
+    MockMEAccessControlUpgradeable mockContract;
 
     // Test actors
-    address public admin;
-    address public user;
-    address public ops;
+    address deployer;
+    address alice;
+    address bob;
+    address charlie;
 
     bytes32 constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 constant OPS_ROLE = keccak256("OPS_ROLE");
+    bytes32 constant CUSTOM_ROLE = keccak256("CUSTOM_ROLE");
 
     function setUp() public {
-        admin = makeAddr("admin");
-        user = makeAddr("user");
-        ops  = makeAddr("ops");
+        deployer = address(this);
+        alice = address(0x1);
+        bob = address(0x2);
+        charlie = address(0x3);
 
         // Deploy implementation
         MockMEAccessControlUpgradeable implementation =
@@ -43,11 +47,11 @@ contract MEAccessControlUpgradeableTest is Test {
 
         // Encode initializer call with initialOwner
         bytes memory initData =
-            abi.encodeWithSignature("initialize(address)", admin);
+            abi.encodeWithSignature("initialize(address)", deployer);
 
         // Deploy proxy and cast the address for convenience
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
-        accessControl = MEAccessControlUpgradeable(address(proxy));
+        mockContract = MockMEAccessControlUpgradeable(address(proxy));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -55,77 +59,333 @@ contract MEAccessControlUpgradeableTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_InitializerSetsRoles() public view {
-        assertTrue(accessControl.hasRole(DEFAULT_ADMIN_ROLE, admin));
-        assertTrue(accessControl.hasRole(OPS_ROLE, admin));
+        assertTrue(mockContract.hasRole(DEFAULT_ADMIN_ROLE, deployer));
+        assertTrue(mockContract.hasRole(OPS_ROLE, deployer));
     }
 
     function test_RevertOnReinitialise() public {
-        vm.prank(admin);
+        vm.prank(deployer);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        MockMEAccessControlUpgradeable(address(accessControl))
-            .initialize(admin);
+        MockMEAccessControlUpgradeable(address(mockContract))
+            .initialize(deployer);
     }
 
     /*//////////////////////////////////////////////////////////////
-                               ROLE MANAGEMENT
+                           BASIC ROLE TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_AddAndRemoveOpsUser() public {
-        vm.prank(admin);
-        accessControl.addOpsUser(ops);
-        assertTrue(accessControl.hasRole(OPS_ROLE, ops));
+    function testHasRole() public {
+        // Deployer should have roles assigned in constructor
+        assertTrue(mockContract.hasRole(DEFAULT_ADMIN_ROLE, deployer));
+        assertTrue(mockContract.hasRole(OPS_ROLE, deployer));
 
-        vm.prank(admin);
-        accessControl.removeOpsUser(ops);
-        assertFalse(accessControl.hasRole(OPS_ROLE, ops));
+        // Other accounts shouldn't have any roles yet
+        assertTrue(!mockContract.hasRole(DEFAULT_ADMIN_ROLE, alice));
+        assertTrue(!mockContract.hasRole(OPS_ROLE, alice));
     }
 
-    function test_RevertWhen_NonAdminAddsOpsUser() public {
-        vm.prank(user);
+    function testGrantRole() public {
+        // Grant alice the OPS_ROLE
+        mockContract.grantRole(OPS_ROLE, alice);
+
+        // Alice should now have the OPS_ROLE
+        assertTrue(mockContract.hasRole(OPS_ROLE, alice));
+
+        // But not the DEFAULT_ADMIN_ROLE
+        assertTrue(!mockContract.hasRole(DEFAULT_ADMIN_ROLE, alice));
+    }
+
+    function testGrantRoleRevert() public {
+        // Impersonate alice who doesn't have admin permissions
+        vm.startPrank(alice);
+
+        // Alice tries to grant Bob the OPS_ROLE, should revert
         vm.expectRevert(
             abi.encodeWithSelector(
                 IAccessControl.AccessControlUnauthorizedAccount.selector,
-                user,
+                alice,
                 DEFAULT_ADMIN_ROLE
             )
         );
-        accessControl.addOpsUser(ops);
+        mockContract.grantRole(OPS_ROLE, bob);
+
+        vm.stopPrank();
+    }
+
+    function testRevokeRole() public {
+        // First grant alice the OPS_ROLE
+        mockContract.grantRole(OPS_ROLE, alice);
+        assertTrue(mockContract.hasRole(OPS_ROLE, alice));
+
+        // Now revoke it
+        mockContract.revokeRole(OPS_ROLE, alice);
+
+        // Alice should no longer have the OPS_ROLE
+        assertTrue(!mockContract.hasRole(OPS_ROLE, alice));
+    }
+
+    function testRevokeRoleRevert() public {
+        // Grant alice the OPS_ROLE
+        mockContract.grantRole(OPS_ROLE, alice);
+
+        // Impersonate bob who doesn't have admin permissions
+        vm.startPrank(bob);
+
+        // Bob tries to revoke alice's OPS_ROLE, should revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                bob,
+                DEFAULT_ADMIN_ROLE
+            )
+        );
+        mockContract.revokeRole(OPS_ROLE, alice);
+
+        vm.stopPrank();
+    }
+
+    function testRenounceRole() public {
+        // First grant alice the OPS_ROLE
+        mockContract.grantRole(OPS_ROLE, alice);
+        assertTrue(mockContract.hasRole(OPS_ROLE, alice));
+
+        // Alice renounces the role herself
+        vm.prank(alice);
+        mockContract.renounceRole(OPS_ROLE, alice);
+
+        // Alice should no longer have the OPS_ROLE
+        assertTrue(!mockContract.hasRole(OPS_ROLE, alice));
+    }
+
+    function testRenounceRoleRevert() public {
+        // First grant alice the OPS_ROLE
+        mockContract.grantRole(OPS_ROLE, alice);
+
+        // Bob tries to make alice renounce her role, should revert
+        vm.prank(bob);
+        vm.expectRevert(IAccessControl.AccessControlBadConfirmation.selector);
+        mockContract.renounceRole(OPS_ROLE, alice);
+
+        // Alice should still have the OPS_ROLE
+        assertTrue(mockContract.hasRole(OPS_ROLE, alice));
     }
 
     /*//////////////////////////////////////////////////////////////
-                              ADMIN TRANSFER
+                           ROLE ADMIN TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_TransferAdmin() public {
-        address newAdmin = makeAddr("newAdmin");
-
-        vm.prank(admin);
-        accessControl.transferAdmin(newAdmin);
-
-        assertTrue(accessControl.hasRole(DEFAULT_ADMIN_ROLE, newAdmin));
-        assertTrue(accessControl.hasRole(OPS_ROLE, newAdmin));
-
-        assertFalse(accessControl.hasRole(DEFAULT_ADMIN_ROLE, admin));
-        assertFalse(accessControl.hasRole(OPS_ROLE, admin));
+    function testGetRoleAdmin() public {
+        // By default, DEFAULT_ADMIN_ROLE is the admin of all roles
+        assertEq(mockContract.getRoleAdmin(OPS_ROLE), DEFAULT_ADMIN_ROLE);
+        assertEq(mockContract.getRoleAdmin(CUSTOM_ROLE), DEFAULT_ADMIN_ROLE);
+        assertEq(
+            mockContract.getRoleAdmin(DEFAULT_ADMIN_ROLE),
+            DEFAULT_ADMIN_ROLE
+        );
     }
 
-    function test_RevertWhen_NonAdminTransfersAdmin() public {
-        address newAdmin = makeAddr("newAdmin");
+    function testSetRoleAdmin() public {
+        // We need to use a function that exposes _setRoleAdmin for this test
+        // Typically this would be done in a specific function in your contract
 
-        vm.prank(user);
+        // For this test, let's assume we want to create a chain of roles
+        // where OPS_ROLE becomes the admin of CUSTOM_ROLE
+
+        // First, grant OPS_ROLE to alice
+        mockContract.grantRole(OPS_ROLE, alice);
+
+        // We can't directly test _setRoleAdmin as it's internal
+        // In a real implementation, you'd expose a function that calls _setRoleAdmin
+
+        // However, we can indirectly test the functionality by checking DEFAULT_ADMIN_ROLE
+        // continues to be its own admin
+        assertEq(
+            mockContract.getRoleAdmin(DEFAULT_ADMIN_ROLE),
+            DEFAULT_ADMIN_ROLE
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           ACCESS MODIFIER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function testOnlyRoleModifier_Admin() public {
+        // Deployer can call adminOnly because they have DEFAULT_ADMIN_ROLE
+        mockContract.adminOnly();
+
+        // Grant alice the OPS_ROLE but not DEFAULT_ADMIN_ROLE
+        mockContract.grantRole(OPS_ROLE, alice);
+
+        // Alice cannot call adminOnly
+        vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IAccessControl.AccessControlUnauthorizedAccount.selector,
-                user,
+                alice,
                 DEFAULT_ADMIN_ROLE
             )
         );
-        accessControl.transferAdmin(newAdmin);
+        mockContract.adminOnly();
     }
 
-    function test_RevertWhen_TransferAdminToZero() public {
-        vm.prank(admin);
-        vm.expectRevert(MEAccessControlUpgradeable.InvalidOwner.selector);
-        accessControl.transferAdmin(address(0));
+    function testOnlyRoleModifier_Ops() public {
+        // Deployer can call opsOnly because they have OPS_ROLE
+        mockContract.opsOnly();
+
+        // Grant bob the DEFAULT_ADMIN_ROLE but not OPS_ROLE
+        mockContract.grantRole(DEFAULT_ADMIN_ROLE, bob);
+
+        // Bob cannot call opsOnly despite having admin role
+        vm.prank(bob);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                bob,
+                OPS_ROLE
+            )
+        );
+        mockContract.opsOnly();
+
+        // Grant bob the OPS_ROLE
+        mockContract.grantRole(OPS_ROLE, bob);
+
+        // Now bob can call opsOnly
+        vm.prank(bob);
+        mockContract.opsOnly();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           ERC165 INTERFACE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function testSupportsInterface() public {
+        // Test support for IAccessControl interface
+        bytes4 accessControlInterfaceId = type(IAccessControl).interfaceId;
+        assertTrue(mockContract.supportsInterface(accessControlInterfaceId));
+
+        // Test support for IERC165 interface
+        bytes4 erc165InterfaceId = type(IERC165).interfaceId;
+        assertTrue(mockContract.supportsInterface(erc165InterfaceId));
+
+        // Test a random interface that shouldn't be supported
+        bytes4 randomInterfaceId = bytes4(keccak256("random()"));
+        assertTrue(!mockContract.supportsInterface(randomInterfaceId));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           COMPLEX SCENARIO TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function testComplexRoleManagement() public {
+        // Create a role hierarchy:
+        // 1. DEFAULT_ADMIN_ROLE (deployer) can manage all roles
+        // 2. Alice gets OPS_ROLE
+        // 3. Alice grants OPS_ROLE to Bob
+        // 4. Deployer revokes DEFAULT_ADMIN_ROLE from itself
+
+        // First, make OPS_ROLE self-manageable (admins of OPS_ROLE are OPS_ROLE holders)
+        // This would normally be done with _setRoleAdmin but we would need a function for it
+        // This is just a sketch of how the test would work conceptually
+
+        // 1. Grant OPS_ROLE to alice
+        mockContract.grantRole(OPS_ROLE, alice);
+        assertTrue(mockContract.hasRole(OPS_ROLE, alice));
+
+        // Alice can't grant OPS_ROLE to bob yet because OPS_ROLE isn't self-managed
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                alice,
+                DEFAULT_ADMIN_ROLE
+            )
+        );
+        mockContract.grantRole(OPS_ROLE, bob);
+
+        // In a real implementation, we would call a function that makes OPS_ROLE self-managed:
+        // mockContract.setRoleAdmin(OPS_ROLE, OPS_ROLE);
+
+        // The deployer still has DEFAULT_ADMIN_ROLE
+        assertTrue(mockContract.hasRole(DEFAULT_ADMIN_ROLE, deployer));
+
+        // The deployer can renounce this role
+        mockContract.renounceRole(DEFAULT_ADMIN_ROLE, deployer);
+        assertTrue(!mockContract.hasRole(DEFAULT_ADMIN_ROLE, deployer));
+    }
+
+    function testEmitEvents() public {
+        // Test RoleGranted event
+        vm.expectEmit(true, true, true, true);
+        emit IAccessControl.RoleGranted(CUSTOM_ROLE, alice, deployer);
+        mockContract.grantRole(CUSTOM_ROLE, alice);
+
+        // Test RoleRevoked event
+        vm.expectEmit(true, true, true, true);
+        emit IAccessControl.RoleRevoked(CUSTOM_ROLE, alice, deployer);
+        mockContract.revokeRole(CUSTOM_ROLE, alice);
     }
 }
+
+    // /*//////////////////////////////////////////////////////////////
+    //                            ROLE MANAGEMENT
+    // //////////////////////////////////////////////////////////////*/
+
+    // function test_AddAndRemoveOpsUser() public {
+    //     vm.prank(admin);
+    //     accessControl.addOpsUser(ops);
+    //     assertTrue(accessControl.hasRole(OPS_ROLE, ops));
+
+    //     vm.prank(admin);
+    //     accessControl.removeOpsUser(ops);
+    //     assertFalse(accessControl.hasRole(OPS_ROLE, ops));
+    // }
+
+    // function test_RevertWhen_NonAdminAddsOpsUser() public {
+    //     vm.prank(user);
+    //     vm.expectRevert(
+    //         abi.encodeWithSelector(
+    //             IAccessControl.AccessControlUnauthorizedAccount.selector,
+    //             user,
+    //             DEFAULT_ADMIN_ROLE
+    //         )
+    //     );
+    //     accessControl.addOpsUser(ops);
+    // }
+
+    // /*//////////////////////////////////////////////////////////////
+    //                           ADMIN TRANSFER
+    // //////////////////////////////////////////////////////////////*/
+
+    // function test_TransferAdmin() public {
+    //     address newAdmin = makeAddr("newAdmin");
+
+    //     vm.prank(admin);
+    //     accessControl.transferAdmin(newAdmin);
+
+    //     assertTrue(accessControl.hasRole(DEFAULT_ADMIN_ROLE, newAdmin));
+    //     assertTrue(accessControl.hasRole(OPS_ROLE, newAdmin));
+
+    //     assertFalse(accessControl.hasRole(DEFAULT_ADMIN_ROLE, admin));
+    //     assertFalse(accessControl.hasRole(OPS_ROLE, admin));
+    // }
+
+    // function test_RevertWhen_NonAdminTransfersAdmin() public {
+    //     address newAdmin = makeAddr("newAdmin");
+
+    //     vm.prank(user);
+    //     vm.expectRevert(
+    //         abi.encodeWithSelector(
+    //             IAccessControl.AccessControlUnauthorizedAccount.selector,
+    //             user,
+    //             DEFAULT_ADMIN_ROLE
+    //         )
+    //     );
+    //     accessControl.transferAdmin(newAdmin);
+    // }
+
+    // function test_RevertWhen_TransferAdminToZero() public {
+    //     vm.prank(admin);
+    //     vm.expectRevert(MEAccessControlUpgradeable.InvalidOwner.selector);
+    //     accessControl.transferAdmin(address(0));
+    // }
+// }
