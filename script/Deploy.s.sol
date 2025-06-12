@@ -2,10 +2,13 @@
 pragma solidity ^0.8.28;
 
 import "forge-std/Script.sol";
-import "../src/LuckyBuy.sol";
+// import "../src/LuckyBuy.sol";
+import "../src/LuckyBuyInitializable.sol";
 import "../src/PRNG.sol";
 
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+
 
 contract OpenEdition is ERC1155 {
     constructor() ERC1155("") {}
@@ -20,37 +23,92 @@ contract OpenEdition is ERC1155 {
     }
 }
 
+// deprecated
 contract DeployPRNG is Script {
     function run() external {
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        PRNG prng = new PRNG();
-        console.log(address(prng));
-        vm.stopBroadcast();
+        // vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        // PRNG prng = new PRNG();
+        // console.log(address(prng));
+        // vm.stopBroadcast();
     }
 }
-contract DeployLuckyBuy is Script {
+
+// deprecated
+contract DeployLuckyBuyLegacy is Script {
     address feeReceiver = 0x0178070d088C235e1Dc2696D257f90B3ded475a3;
     address prng = 0xBdAa680FcD544acc373c5f190449575768Ac4822;
     address feeReceiverManager = 0x7C51fAEe5666B47b2F7E81b7a6A8DEf4C76D47E3;
 
     function run() external {
+        // uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+
+        // uint256 protocolFee = 500; // 5%
+        // uint256 flatFee = 825000000000000;
+
+        // vm.startBroadcast(deployerPrivateKey);
+
+        // LuckyBuyInitializable luckyBuy = new LuckyBuyInitializable(
+        //     protocolFee,
+        //     flatFee,
+        //     feeReceiver,
+        //     address(prng),
+        //     feeReceiverManager
+        // );
+
+        // console.log(address(luckyBuy));
+
+        // vm.stopBroadcast();
+    }
+}
+
+// Deploy initial LuckyBuyInitializable implementation with proxy
+contract DeployLuckyBuy is Script {
+    // EOA
+    address feeReceiver = 0x2918F39540df38D4c33cda3bCA9edFccd8471cBE;
+    // Gnosis Safe contract
+    address feeReceiverManager = 0x7C51fAEe5666B47b2F7E81b7a6A8DEf4C76D47E3;
+   
+    function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address admin = vm.addr(deployerPrivateKey);
+        console.log("Admin", admin);
 
         uint256 protocolFee = 500; // 5%
         uint256 flatFee = 825000000000000;
 
         vm.startBroadcast(deployerPrivateKey);
 
-        LuckyBuy luckyBuy = new LuckyBuy(
-            protocolFee,
-            flatFee,
-            feeReceiver,
-            address(prng),
-            feeReceiverManager
-        );
+        // Deploy RNG
+        PRNG prng = new PRNG();
+        console.log("PRNG", address(prng));
 
-        console.log(address(luckyBuy));
+        // Deploy implementation
+        LuckyBuyInitializable implementation =
+            new LuckyBuyInitializable();
+        console.log("Implementation", address(implementation));
 
+        // Encode initializer call with
+        // address initialOwner_
+        // uint256 protocolFee_
+        // uint256 flatFee_
+        // address feeReceiver_
+        // address prng_
+        // address feeReceiverManager_
+        bytes memory initData =
+            abi.encodeWithSignature(
+                "initialize(address,uint256,uint256,address,address,address)",
+                admin,
+                protocolFee,
+                flatFee,
+                feeReceiver,
+                address(prng),
+                feeReceiverManager
+            );
+
+        // Deploy proxy and cast the address for convenience
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        console.log("Proxy", address(proxy));
+        
         vm.stopBroadcast();
     }
 }
@@ -100,7 +158,7 @@ contract SetOpenEditionToken is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        LuckyBuy(luckyBuy).setOpenEditionToken(
+        LuckyBuyInitializable(luckyBuy).setOpenEditionToken(
             openEditionToken,
             tokenId,
             amount
@@ -120,7 +178,7 @@ contract SetFeeReceiverAddress is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        LuckyBuy(luckyBuy).setFeeReceiver(feeReceiver);
+        LuckyBuyInitializable(luckyBuy).setFeeReceiver(feeReceiver);
 
         vm.stopBroadcast();
     }
@@ -135,7 +193,7 @@ contract SetFlatFee is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        LuckyBuy(luckyBuy).setFlatFee(flatFee);
+        LuckyBuyInitializable(luckyBuy).setFlatFee(flatFee);
 
         vm.stopBroadcast();
     }
@@ -150,7 +208,7 @@ contract SetCommitExpireTime is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        LuckyBuy(luckyBuy).setCommitExpireTime(commitExpireTime);
+        LuckyBuyInitializable(luckyBuy).setCommitExpireTime(commitExpireTime);
 
         vm.stopBroadcast();
     }
@@ -166,7 +224,7 @@ contract AddCosigner is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        LuckyBuy(luckyBuy).addCosigner(cosigner);
+        LuckyBuyInitializable(luckyBuy).addCosigner(cosigner);
 
         vm.stopBroadcast();
     }
@@ -190,7 +248,7 @@ contract getLuckyBuy is Script {
             bytes32 orderHash,
             uint256 amount,
             uint256 reward
-        ) = LuckyBuy(luckyBuy).luckyBuys(0);
+        ) = LuckyBuyInitializable(luckyBuy).luckyBuys(0);
         console.log(id);
         console.log(receiver);
         console.log(cosigner);
@@ -200,14 +258,14 @@ contract getLuckyBuy is Script {
         console.log(amount);
         console.log(reward);
 
-        console.log(LuckyBuy(luckyBuy).feesPaid(0));
-        console.log(LuckyBuy(luckyBuy).protocolFee());
+        console.log(LuckyBuyInitializable(luckyBuy).feesPaid(0));
+        console.log(LuckyBuyInitializable(luckyBuy).protocolFee());
 
         console.log("########################");
-        console.log(LuckyBuy(luckyBuy).treasuryBalance());
-        console.log(LuckyBuy(luckyBuy).commitBalance());
+        console.log(LuckyBuyInitializable(luckyBuy).treasuryBalance());
+        console.log(LuckyBuyInitializable(luckyBuy).commitBalance());
 
-        console.log(LuckyBuy(luckyBuy).protocolBalance());
+        console.log(LuckyBuyInitializable(luckyBuy).protocolBalance());
 
         vm.stopBroadcast();
     }

@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "./common/SignatureVerifier.sol";
-
 import {IERC1155MInitializableV1_0_2} from "./common/interfaces/IERC1155MInitializableV1_0_2.sol";
-
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {MEAccessControlUpgradeable} from "./common/MEAccessControlUpgradeable.sol";
+import {SignatureVerifierUpgradeable} from "./common/SignatureVerifierUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "./common/MEAccessControl.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IPRNG} from "./common/interfaces/IPRNG.sol";
 
-contract LuckyBuy is
-    MEAccessControl,
-    Pausable,
-    SignatureVerifier,
-    ReentrancyGuard
+
+contract LuckyBuyInitializable is
+    MEAccessControlUpgradeable,
+    PausableUpgradeable,
+    SignatureVerifierUpgradeable,
+    ReentrancyGuardUpgradeable,
+    UUPSUpgradeable
 {
     IPRNG public PRNG;
     address payable public feeReceiver;
@@ -31,10 +33,10 @@ contract LuckyBuy is
     uint256 public treasuryBalance; // The contract balance
     uint256 public commitBalance; // The open commit balances
     uint256 public protocolBalance; // The protocol fees for the open commits
-    uint256 public maxReward = 50 ether;
-    uint256 public protocolFee = 0;
-    uint256 public minReward = BASE_POINTS;
-    uint256 public flatFee = 0;
+    uint256 public maxReward;
+    uint256 public protocolFee;
+    uint256 public minReward;
+    uint256 public flatFee;
 
     uint256 public commitExpireTime = 1 days;
     mapping(uint256 commitId => uint256 expiresAt) public commitExpiresAt;
@@ -43,12 +45,18 @@ contract LuckyBuy is
     uint256 public constant ONE_PERCENT = 100;
     uint256 public constant BASE_POINTS = 10000;
 
+    bytes32 public constant FEE_RECEIVER_MANAGER_ROLE =
+        keccak256("FEE_RECEIVER_MANAGER_ROLE");
+
     mapping(address cosigner => bool active) public isCosigner;
     mapping(address receiver => uint256 counter) public luckyBuyCount;
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
     mapping(uint256 commitId => bool expired) public isExpired;
     // We track this because we can change the fees at any time. This allows open commits to be fulfilled/returned with the fees at the time of commit
     mapping(uint256 commitId => uint256 fee) public feesPaid;
+
+    // Storage gap for future upgrades
+    uint256[50] private __gap;
 
     event Commit(
         address indexed sender,
@@ -146,6 +154,8 @@ contract LuckyBuy is
     error InvalidFeeSplitReceiver();
     error InvalidFeeSplitPercentage();
     error InvalidFeeReceiverManager();
+    error InitialOwnerCannotBeZero();
+    error NewImplementationCannotBeZero();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (
@@ -155,15 +165,28 @@ contract LuckyBuy is
         _;
     }
 
-    /// @notice Constructor initializes the contract and handles any pre-existing balance
+    /// @dev Disables initializers for the implementation contract.
+    constructor() {
+        _disableInitializers();
+    }
+
+    /// @notice Initializes the contract and handles any pre-existing balance
     /// @dev Sets up EIP712 domain separator and deposits any ETH sent during deployment
-    constructor(
+    function initialize(
+        address initialOwner_,
         uint256 protocolFee_,
         uint256 flatFee_,
         address feeReceiver_,
         address prng_,
         address feeReceiverManager_
-    ) MEAccessControl() SignatureVerifier("LuckyBuy", "1") {
+    ) public initializer {
+        if (initialOwner_ == address(0)) revert InitialOwnerCannotBeZero();
+
+        __MEAccessControl_init(initialOwner_);
+        __Pausable_init();
+        __SignatureVerifier_init("LuckyBuy", "1");
+        __ReentrancyGuard_init();
+
         uint256 existingBalance = address(this).balance;
         if (existingBalance > 0) {
             _depositTreasury(existingBalance);
@@ -174,6 +197,15 @@ contract LuckyBuy is
         _setFeeReceiver(feeReceiver_);
         PRNG = IPRNG(prng_);
         _grantRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiverManager_);
+        
+        // Initialize reward limits
+        maxReward = 50 ether;
+        minReward = BASE_POINTS;
+    }
+
+    /// @dev Overriden to prevent unauthorized upgrades.
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newImplementation == address(0)) revert NewImplementationCannotBeZero();
     }
 
     /// @notice Allows a user to commit funds for a chance to win
