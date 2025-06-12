@@ -43,6 +43,9 @@ contract LuckyBuy is
     uint256 public constant ONE_PERCENT = 100;
     uint256 public constant BASE_POINTS = 10000;
 
+    bytes32 public constant FEE_RECEIVER_MANAGER_ROLE =
+        keccak256("FEE_RECEIVER_MANAGER_ROLE");
+
     mapping(address cosigner => bool active) public isCosigner;
     mapping(address receiver => uint256 counter) public luckyBuyCount;
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
