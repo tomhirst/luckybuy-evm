@@ -65,7 +65,7 @@ contract LuckyBuyV2 is UUPSUpgradeable, MEAccessControlUpgradeable {
 
     // Override an existing function to test function overriding
     function setMaxReward(uint256 maxReward_) external onlyRole(OPS_ROLE) {
-        require(maxReward_ > 100 ether, "New max reward must be greater than 100 ETH");
+        require(maxReward_ < 100 ether, "New max reward must be less than 100 ETH");
         maxReward = maxReward_;
     }
 
@@ -166,12 +166,69 @@ contract UpgradeTest is Test {
         LuckyBuyV2 proxyV2 = LuckyBuyV2(payable(address(proxy)));
         
         // Test overridden function
-        proxyV2.setMaxReward(150 ether);
-        assertEq(proxyV2.maxReward(), 150 ether);
+        proxyV2.setMaxReward(75 ether);
+        assertEq(proxyV2.maxReward(), 75 ether);
         
         // Test that old limit is enforced
-        vm.expectRevert("New max reward must be greater than 100 ETH");
-        proxyV2.setMaxReward(50 ether);
+        vm.expectRevert("New max reward must be less than 100 ETH");
+        proxyV2.setMaxReward(150 ether);
+        
+        vm.stopPrank();
+    }
+
+    function test_UpgradeToV2AndBackToV1() public {
+        vm.startPrank(admin);
+        
+        // Store initial state values
+        uint256 initialMaxReward = proxy.maxReward();
+        uint256 initialProtocolFee = proxy.protocolFee();
+        uint256 initialFlatFee = proxy.flatFee();
+        address initialFeeReceiver = proxy.feeReceiver();
+        address initialPRNG = address(proxy.PRNG());
+        
+        // Upgrade to V2
+        proxy.upgradeToAndCall(address(implementationV2), "");
+        
+        // Cast proxy to V2
+        LuckyBuyV2 proxyV2 = LuckyBuyV2(payable(address(proxy)));
+        
+        // Test V2 functionality
+        assertEq(proxyV2.newFunction(), "V2");
+        
+        // Test V2 state is preserved from V1
+        assertEq(proxyV2.maxReward(), initialMaxReward);
+        assertEq(proxyV2.protocolFee(), initialProtocolFee);
+        assertEq(proxyV2.flatFee(), initialFlatFee);
+        assertEq(proxyV2.feeReceiver(), initialFeeReceiver);
+        assertEq(address(proxyV2.PRNG()), initialPRNG);
+        
+        // Test V2's new maxReward validation
+        vm.expectRevert("New max reward must be less than 100 ETH");
+        proxyV2.setMaxReward(150 ether);
+
+        proxyV2.setMaxReward(75 ether);
+        assertEq(proxyV2.maxReward(), 75 ether);
+        
+        // Upgrade back to V1
+        proxy.upgradeToAndCall(address(implementation), "");
+        
+        // Cast back to V1
+        LuckyBuyInitializable proxyV1 = LuckyBuyInitializable(payable(address(proxy)));
+        
+        // Test V1 state is preserved from V2
+        assertEq(proxyV1.maxReward(), 75 ether);
+        assertEq(proxyV1.protocolFee(), initialProtocolFee);
+        assertEq(proxyV1.flatFee(), initialFlatFee);
+        assertEq(proxyV1.feeReceiver(), initialFeeReceiver);
+        assertEq(address(proxyV1.PRNG()), initialPRNG);
+        
+        // Test V1's original maxReward validation (should be able to set > 100 ether)
+        proxyV1.setMaxReward(150 ether);
+        assertEq(proxyV1.maxReward(), 150 ether);
+        
+        // Verify V2 functionality is no longer available
+        vm.expectRevert();
+        LuckyBuyV2(payable(address(proxy))).newFunction();
         
         vm.stopPrank();
     }
