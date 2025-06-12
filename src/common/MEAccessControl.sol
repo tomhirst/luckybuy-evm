@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
 /**
- * @title MEAccessControl
- * @dev Contract that inherits from OpenZeppelin's AccessControl and exposes role management
+ * @title MEAccessControlUpgradeable
+ * @dev Contract that inherits from OpenZeppelin's AccessControlUpgradeable and exposes role management
  * functions at the top level for improved developer experience.
  */
-contract MEAccessControl is AccessControl {
+contract MEAccessControlUpgradeable is AccessControlUpgradeable {
     bytes32 public constant OPS_ROLE = keccak256("OPS_ROLE");
-    bytes32 public constant FEE_RECEIVER_MANAGER_ROLE =
-        keccak256("FEE_RECEIVER_MANAGER_ROLE");
 
     error InvalidOwner();
 
-    constructor() {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(OPS_ROLE, msg.sender);
+    function __MEAccessControl_init(address initialOwner_) internal onlyInitializing {
+        __AccessControl_init();
+        _grantRole(DEFAULT_ADMIN_ROLE, initialOwner_);
+        _grantRole(OPS_ROLE, initialOwner_);
     }
 
     /// @notice Transfers admin rights to a new address. Admin functions are intentionally not paused
