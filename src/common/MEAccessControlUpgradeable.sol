@@ -10,8 +10,6 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
  */
 contract MEAccessControlUpgradeable is AccessControlUpgradeable {
     bytes32 public constant OPS_ROLE = keccak256("OPS_ROLE");
-    bytes32 public constant FEE_RECEIVER_MANAGER_ROLE =
-        keccak256("FEE_RECEIVER_MANAGER_ROLE");
 
     error InvalidOwner();
 
