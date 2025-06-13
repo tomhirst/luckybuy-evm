@@ -47,7 +47,7 @@ contract DeployLuckyBuyLegacy is Script {
 
         // vm.startBroadcast(deployerPrivateKey);
 
-        // LuckyBuyInitializable luckyBuy = new LuckyBuyInitializable(
+        // LuckyBuy luckyBuy = new LuckyBuy(
         //     protocolFee,
         //     flatFee,
         //     feeReceiver,
