@@ -7,10 +7,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {MEAccessControlUpgradeable} from "./common/MEAccessControlUpgradeable.sol";
 import {SignatureVerifierUpgradeable} from "./common/SignatureVerifierUpgradeable.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IPRNG} from "./common/interfaces/IPRNG.sol";
-
 
 contract LuckyBuyInitializable is
     MEAccessControlUpgradeable,
