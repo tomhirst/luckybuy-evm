@@ -152,6 +152,14 @@ The fees can be configured by the contract admin:
 
 The protocol fee is limited to a maximum of 100% (10000 basis points).
 
+## Deployment
+
+LuckyBuy uses the [ERC1967](https://docs.openzeppelin.com/contracts/5.x/api/proxy#ERC1967Proxy) proxy implementation pattern, meaning the contract is upgradeable.
+
+Example depoyment script for Ethereum Sepolia testnet:
+
+`forge script ./script/Deploy.s.sol:DeployLuckyBuy --chain-id 11155111 --rpc-url https://sepolia.drpc.org --verify --broadcast`
+
 ## Verification
 
 `forge verify-contract 0x0178070d088C235e1Dc2696D257f90B3ded475a3 src/LuckyBuy.sol:LuckyBuy --constructor-args $(cast abi-encode "constructor(uint256,uint256,address,address,address)" 500 825000000000000 0x2918F39540df38D4c33cda3bCA9edFccd8471cBE 0xBdAa680FcD544acc373c5f190449575768Ac4822 0x7C51fAEe5666B47b2F7E81b7a6A8DEf4C76D47E3) --chain-id 1 --watch`
