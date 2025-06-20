@@ -130,6 +130,12 @@ contract LuckyBuy is
         address indexed oldFeeReceiverManager,
         address indexed newFeeReceiverManager
     );
+    event TransferFailure(
+        uint256 indexed commitId,
+        address indexed receiver,
+        uint256 amount,
+        bytes32 digest
+    );
 
     error AlreadyCosigner();
     error AlreadyFulfilled();
@@ -559,13 +565,12 @@ contract LuckyBuy is
             );
         } else {
             // The order failed to fulfill, it could be bought already or invalid, make the best effort to send the user the value of the order they won.
-            treasuryBalance -= orderAmount_;
-
-            // This can also revert if the receiver is a contract that doesn't accept ETH
-            (bool success, ) = commitData.receiver.call{value: orderAmount_}(
-                ""
-            );
-            if (!success) revert TransferFailed();
+            (bool success, ) = commitData.receiver.call{value: orderAmount_}("");
+            if (success) {
+                treasuryBalance -= orderAmount_;
+            } else {
+                emit TransferFailure(commitData.id, commitData.receiver, orderAmount_, digest);
+            }
 
             emit Fulfillment(
                 msg.sender,
@@ -644,10 +649,12 @@ contract LuckyBuy is
 
         uint256 transferAmount = commitAmount + protocolFeesPaid;
 
-        (bool success, ) = payable(commitData.receiver).call{
-            value: transferAmount
-        }("");
-        if (!success) revert TransferFailed();
+        (bool success, ) = payable(commitData.receiver).call{value: transferAmount}("");
+        if (!success) {
+            // Transfer failed; account the funds in treasury and emit event.
+            treasuryBalance += transferAmount;
+            emit TransferFailure(commitId_, commitData.receiver, transferAmount, hash(commitData));
+        }
 
         emit CommitExpired(commitId_, hash(commitData));
     }
