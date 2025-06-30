@@ -15,9 +15,9 @@ interface IPacksSignatureVerifier {
         uint256 seed;
         uint256 counter;
         uint256 packPrice; // In ether
-        uint256 packPriceUsd; // Moment in time conversion for storage and event emission purposes
         uint256 payoutBps; // We should track this at moment in time from contract state in case we change it
         BucketData[] buckets;
+        bytes32 packHash;
     }
 
     function hash(

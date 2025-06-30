@@ -60,16 +60,15 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
                 keccak256(
                     abi.encode(
                         keccak256(
-                            "CommitData(uint256 id,address receiver,address cosigner,uint256 seed,uint256 counter,bytes32 orderHash,uint256 amount,uint256 reward)"
+                            "CommitData(uint256 id,address receiver,address cosigner,uint256 seed,uint256 counter,uint256 packPrice,BucketData[] buckets)"
                         ),
                         commit.id,
                         commit.receiver,
                         commit.cosigner,
                         commit.seed,
                         commit.counter,
-                        commit.orderHash,
-                        commit.amount,
-                        commit.reward
+                        commit.packPrice,
+                        commit.buckets
                     )
                 )
             );
@@ -97,6 +96,7 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
         bytes32 digest = _hash(commit);
         return _verifyDigest(digest, signature);
     }
+
     /// @dev Internal function to verify a commit. Expects _hash(commit) elsewhere.
     /// @param signature Signature to verify
     /// @return Address of the signer
@@ -105,5 +105,27 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
         bytes memory signature
     ) internal view returns (address) {
         return ECDSA.recover(digest, signature);
+    }
+
+    /// @dev Internal function to verify a pack hash
+    /// @param packHash Pack hash to verify
+    /// @param signature Signature to verify
+    /// @return Address of the signer
+    function _verifyPackHash(
+        bytes32 packHash,
+        bytes memory signature
+    ) internal view returns (address) {
+        return ECDSA.recover(packHash, signature);
+    }
+
+    /// @dev Internal function to verify an order hash
+    /// @param orderHash Order hash to verify
+    /// @param signature Signature to verify
+    /// @return Address of the signer
+    function _verifyOrderHash(
+        bytes32 orderHash,
+        bytes memory signature
+    ) internal view returns (address) {
+        return ECDSA.recover(orderHash, signature);
     }
 }

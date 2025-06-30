@@ -38,10 +38,12 @@ contract PacksInitializable is
     mapping(address receiver => uint256 counter) public packCount;
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
     mapping(uint256 commitId => bool expired) public isExpired;
-
+    
     uint256 public payoutBps; // When user selects payout as reward
     uint256 public minReward; // Min reward for a commit (whether it's NFT or payout)
     uint256 public maxReward; // Max reward for a commit (whether it's NFT or payout)
+    uint256 public minPackPrice; // Min pack price for a commit
+    uint256 public maxPackPrice; // Max pack price for a commit
 
     // Storage gap for future upgrades
     uint256[50] private __gap;
@@ -56,9 +58,8 @@ contract PacksInitializable is
         address cosigner,
         uint256 seed,
         uint256 counter,
-        uint256 packPriceUsd,
+        uint256 packPrice,
         bytes32 bucketsHash,
-        bytes32 bucketsSignature,
         bytes32 digest
     );
     event CosignerAdded(address indexed cosigner);
@@ -116,6 +117,9 @@ contract PacksInitializable is
     error InsufficientBalance();
     error InvalidAmount();
     error InvalidCommitOwner();
+    error InvalidBuckets();
+    error InvalidBucketIndex();
+    error InvalidPackHash();
     error InvalidCosigner();
     error InvalidReceiver();
     error InvalidReward();
@@ -172,6 +176,9 @@ contract PacksInitializable is
         payoutBps = 9000;
         minReward = 0.01 ether;
         maxReward = 5 ether;
+
+        minPackPrice = 0.01 ether;
+        maxPackPrice = 0.25 ether;
     }
 
     /// @dev Overriden to prevent unauthorized upgrades.
@@ -183,8 +190,6 @@ contract PacksInitializable is
     /// @param receiver_ Address that will receive the NFT/ETH if won
     /// @param cosigner_ Address of the authorized cosigner
     /// @param seed_ Random seed for the commit
-    /// @param packPrice_ Pack price in ether
-    /// @param packPriceUsd_ Price of the pack in USD for moment in time storage purposes
     /// @param buckets_ Buckets used in the pack
     /// @param signature_ Signature is the cosigned hash of packPrice + buckets[]
     /// @dev Emits a Commit event on success
@@ -193,18 +198,22 @@ contract PacksInitializable is
         address receiver_,
         address cosigner_,
         uint256 seed_,
-        // verify these inputs
-        uint256 packPrice_,
-        uint256 packPriceUsd_, 
-        BucketData[] buckets_,
-        // are signed by the above cosigner
+        bytes32 packHash_,
+        BucketData[] memory buckets_,
         bytes32 signature_
     ) public payable whenNotPaused returns (uint256) {
-        if (msg.value == 0) revert InvalidAmount();
-        if (packPrice_ == 0) revert InvalidAmount();
+        // Amount user is sending to purchase the pack
+        uint256 amount = msg.value;
+        
+        if (amount == 0) revert InvalidAmount();
+        if (amount < minPackPrice) revert InvalidAmount();
+        if (amount > maxPackPrice) revert InvalidAmount();
+
         if (!isCosigner[cosigner_]) revert InvalidCosigner();
         if (cosigner_ == address(0)) revert InvalidCosigner();
         if (receiver_ == address(0)) revert InvalidReceiver();
+
+        if (buckets_.length == 0) revert InvalidBuckets();
 
         uint256 minReward_ = buckets_[0].minValue;
         uint256 maxReward_ = buckets_[buckets_.length - 1].maxValue;
@@ -215,34 +224,22 @@ contract PacksInitializable is
         if (maxReward_ > maxReward) revert InvalidReward();
         if (minReward_ < minReward) revert InvalidReward();
         
-        // Amount user is sending to purchase the pack
-        uint256 amount = msg.value;
+        // Validate pack hash
+        bytes32 packHash = hashPack(amount, buckets_);
+        // TODO: Potentially superfluous as caller controls all inputs
+        if (packHash_ != packHash) revert InvalidPackHash();
 
-        // TODO: I think we need a signed packsHash that is a combo of packPrice (ether) and bucketContents that we then sign with the cosigner
-        // to ensure the pack is valid and not tampered with
+        // Verify pack hash signature
+        address cosigner = _verifyPackHash(packHash, signature_);
+         // TODO: Potentially superfluous as caller controls all inputs
+        if (cosigner != cosigner_) revert InvalidCosigner();
+        // Ensure pack data was signed by approved cosigner
+        if (!isCosigner[cosigner]) revert InvalidCosigner();
 
-        // The commit amount must be greater than the min reward
-        if (amount < minReward_) revert InvalidAmount();
+        uint256 commitId = packs.length;
+        uint256 userCounter = packCount[receiver_]++;
 
-        // The commit amount must be less than the max reward
-        if (amount > maxReward_) revert InvalidAmount();
-
-        // The fee is the amount without the flat fee minus the amount without the protocol fee
-        uint256 protocolFee = amountWithoutFlatFee - commitAmount;
-
-        // The commit amount must be less than the reward
-        if (commitAmount > reward_) revert InvalidAmount();
-
-        // Check if odds are greater than 100%
-        if ((commitAmount * BASE_POINTS) / reward_ > BASE_POINTS)
-            revert InvalidAmount();
-
-        uint256 commitId = luckyBuys.length;
-        uint256 userCounter = luckyBuyCount[receiver_]++;
-
-        feesPaid[commitId] = protocolFee;
-        protocolBalance += protocolFee;
-        commitBalance += commitAmount;
+        commitBalance += amount;
 
         CommitData memory commitData = CommitData({
             id: commitId,
@@ -250,12 +247,13 @@ contract PacksInitializable is
             cosigner: cosigner_,
             seed: seed_,
             counter: userCounter,
-            orderHash: orderHash_,
-            amount: commitAmount,
-            reward: reward_
+            packPrice: amount,
+            payoutBps: payoutBps,
+            buckets: buckets_,
+            packHash: packHash
         });
 
-        luckyBuys.push(commitData);
+        packs.push(commitData);
         commitExpiresAt[commitId] = block.timestamp + commitExpireTime;
 
         bytes32 digest = hash(commitData);
@@ -268,11 +266,8 @@ contract PacksInitializable is
             cosigner_,
             seed_,
             userCounter,
-            orderHash_, // Relay tx properties: to, data, value
-            commitAmount,
-            reward_,
-            protocolFee,
-            flatFee,
+            amount,
+            packHash,
             digest
         );
 
@@ -286,118 +281,178 @@ contract PacksInitializable is
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
-    /// @param signature_ Signature used for random number generation
+    /// @param signature_ Signature used for random number generation (and to validate orderData)
+    /// @param receiverSignature_ Signature used for receiver's choice
+    /// @param payout_ Amount of ETH sent to user if they choose payout
     /// @dev Emits a Fulfillment event on success
     function fulfill(
         uint256 commitId_,
+        uint256 packPrice_,
+        BucketData[] memory buckets_,
+        uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata signature_
+        bytes calldata signature_, // cosigner signed orderData
+        bytes calldata signatureTwo_, // cosigner signed commitData
+        bytes calldata receiverSignature_, // receiver signed choice
+        uint256 payout_
     ) public payable whenNotPaused {
-        uint256 protocolFeesPaid = feesPaid[commitId_];
         _fulfill(
             commitId_,
+            packPrice_,
+            buckets_,
+            bucketIndex_,
             marketplace_,
             orderData_,
             orderAmount_,
             token_,
             tokenId_,
-            signature_
+            signature_,
+            signatureTwo_,
+            receiverSignature_,
+            payout_
         );
-
-        _sendProtocolFees(commitId_, protocolFeesPaid);
     }
 
     function _fulfill(
         uint256 commitId_,
+        uint256 packPrice_,
+        BucketData[] memory buckets_,
+        uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata signature_
+        bytes calldata signature_,
+        bytes calldata signatureTwo_,
+        bytes calldata receiverSignature_,
+        uint256 payout_
     ) internal nonReentrant {
         // validate tx
         if (msg.value > 0) _depositTreasury(msg.value);
         if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isExpired[commitId_]) revert CommitIsExpired();
-        if (commitId_ >= luckyBuys.length) revert InvalidCommitId();
+        if (commitId_ >= packs.length) revert InvalidCommitId();
 
         // mark the commit as fulfilled
         isFulfilled[commitId_] = true;
 
-        // validate commit data matches tx data
-        CommitData memory commitData = luckyBuys[commitId_];
+        // validate commit data matches fulfill data
+        CommitData memory commitData = packs[commitId_];
 
-        // validate the order hash
-        if (
-            commitData.orderHash !=
-            hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_)
-        ) revert InvalidOrderHash();
+        // Validate the pack hash (checks that the pack price and buckets are the same as the commit)
+        // TODO: Potentially superfluous if we check the cosigner signs the commit digest
+        if (commitData.packHash != hashPack(packPrice_, buckets_)) revert InvalidPackHash();
 
-        // validate the reward amount
-        if (orderAmount_ != commitData.reward) revert InvalidAmount();
-
-        // hash commit, check signature. digest is needed later for logging
-        bytes32 digest = hash(commitData);
-        address cosigner = _verifyDigest(digest, signature_);
+        // Verify orderHash was signed by cosigner
+        bytes32 orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
+        address cosigner = _verifyOrderHash(orderHash, receiverSignature_);
         if (cosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[cosigner]) revert InvalidCosigner();
 
-        // Collect the commit balance and protocol fees
+        // hash commit, check signature. digest is needed later for logging
+        // TODO: Hash orderData and commitData together to check one signature instead of two
+        bytes32 digest = hash(commitData);
+        address cosignerTwo = _verifyDigest(digest, signatureTwo_);
+        if (cosignerTwo != commitData.cosigner) revert InvalidCosigner();
+        if (!isCosigner[cosignerTwo]) revert InvalidCosigner();
+
+        // Collect the commit balance
         // transfer the commit balance to the contract
         treasuryBalance += commitData.amount;
         commitBalance -= commitData.amount;
 
-        // transfer the protocol fees to the contract
-        uint256 protocolFeesPaid = feesPaid[commitData.id];
+        // TODO: Check that the reciever signed the choice
+        address receiver = _verifyDigest(digest, receiverSignature_);
+        if (receiver != commitData.receiver) revert InvalidReceiver();
 
-        treasuryBalance += protocolFeesPaid;
-        protocolBalance -= protocolFeesPaid;
-
-        // calculate the odds in base points
-        uint256 odds = _calculateOdds(commitData.amount, commitData.reward);
+        // TODO: We need to validate that given the same commit bucket array param and signature the same bucket is selected
+        // on chain as the off chain parameters passed in to this function
         uint256 rng = PRNG.rng(signature_);
-        bool win = rng < odds;
 
-        if (win) {
-            _handleWin(
-                commitData,
-                marketplace_,
-                orderData_,
-                orderAmount_,
-                rng,
-                odds,
-                win,
-                token_,
-                tokenId_,
-                protocolFeesPaid,
-                digest
-            );
-        } else {
-            if (openEditionToken != address(0)) {
-                IERC1155MInitializableV1_0_2(openEditionToken).ownerMint(
+        uint256 bucketIndex;
+        for (uint256 i = 0; i < buckets_.length; i++) {
+            if (rng < buckets_[i].odds) {
+                bucketIndex = i;
+                break;
+            }
+        }
+        if (bucketIndex != bucketIndex_) revert InvalidBucketIndex();
+
+        // TODO: Ensure that orderAmount is within bucket range
+        BucketData memory bucket = buckets_[bucketIndex];
+        if (orderAmount_ < bucket.minValue) revert InvalidAmount();
+        if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
+
+        // TODO: Handle user choice and fulfil order or payout
+        if (payout_ == 0) { // User selected NFT
+           // execute the market data to transfer the nft
+            bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
+            if (success) {
+                // subtract the order amount from the contract balance
+                treasuryBalance -= orderAmount_;
+                // emit a success transfer for the nft
+                emit Fulfillment(
+                    msg.sender,
+                    commitData.id,
+                    rng,
+                    bucket.odds,
+                    bucketIndex_,
+                    payout_,
+                    token_,
+                    tokenId_,
+                    orderAmount_,
                     commitData.receiver,
-                    openEditionTokenId,
-                    openEditionTokenAmount
+                    digest
+                );
+            } else {
+                // The order failed to fulfill, it could be bought already or invalid, make the best effort to send the user the value of the order they won.
+                (bool success, ) = commitData.receiver.call{value: orderAmount_}("");
+                if (success) {
+                    treasuryBalance -= orderAmount_;
+                } else {
+                    emit TransferFailure(commitData.id, commitData.receiver, orderAmount_, digest);
+                }
+                 // emit the failure (they wanted the NFT but got the payout)
+                 emit Fulfillment(
+                    msg.sender,
+                    commitId_,
+                    rng,
+                    bucket.odds,
+                    bucketIndex_,
+                    payout_,
+                    address(0),
+                    0,
+                    0,
+                    commitData.receiver,
+                    digest
                 );
             }
-            // emit the failure
+        } else { // User selected payout
+            // TODO: Handle payout
+            (bool success, ) = commitData.receiver.call{value: orderAmount_}("");
+            if (success) {
+                treasuryBalance -= orderAmount_;
+            } else {
+                emit TransferFailure(commitData.id, commitData.receiver, orderAmount_, digest);
+            }
+            // emit the payout
             emit Fulfillment(
                 msg.sender,
                 commitId_,
                 rng,
-                odds,
-                win,
+                bucket.odds,
+                bucketIndex_,
+                payout_,
                 address(0),
                 0,
                 0,
                 commitData.receiver,
-                protocolFeesPaid,
                 digest
             );
         }
@@ -405,25 +460,40 @@ contract PacksInitializable is
 
     /// @notice Fulfills a commit with the result of the random number generation
     /// @param commitDigest_ Digest of the commit to fulfill
+    /// @param packPrice_ Price of the pack
+    /// @param buckets_ Buckets used in the pack
+    /// @param bucketIndex_ Index of the bucket to fulfill
     /// @param marketplace_ Address where the order should be executed
     /// @param orderData_ Calldata for the order execution
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
     /// @param signature_ Signature used for random number generation
+    /// @param signatureTwo_ Signature used for commit data
+    /// @param receiverSignature_ Signature used for receiver's choice
+    /// @param payout_ Amount of ETH sent to user if they choose payout
     /// @dev Emits a Fulfillment event on success
     function fulfillByDigest(
         bytes32 commitDigest_,
+        uint256 packPrice_,
+        BucketData[] memory buckets_,
+        uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata signature_
+        bytes calldata signature_,
+        bytes calldata signatureTwo_,
+        bytes calldata receiverSignature_,
+        uint256 payout_
     ) public payable whenNotPaused {
         return
             fulfill(
                 commitIdByDigest[commitDigest_],
+                packPrice_,
+                buckets_,
+                bucketIndex_,
                 marketplace_,
                 orderData_,
                 orderAmount_,
@@ -431,63 +501,6 @@ contract PacksInitializable is
                 tokenId_,
                 signature_
             );
-    }
-
-    function _handleWin(
-        CommitData memory commitData,
-        address marketplace_,
-        bytes calldata orderData_,
-        uint256 orderAmount_,
-        uint256 rng_,
-        uint256 odds_,
-        bool win_,
-        address token_,
-        uint256 tokenId_,
-        uint256 protocolFeesPaid,
-        bytes32 digest
-    ) internal {
-        // execute the market data to transfer the nft
-        bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
-        if (success) {
-            // subtract the order amount from the contract balance
-            treasuryBalance -= orderAmount_;
-            // emit a success transfer for the nft
-            emit Fulfillment(
-                msg.sender,
-                commitData.id,
-                rng_,
-                odds_,
-                win_,
-                token_,
-                tokenId_,
-                orderAmount_,
-                commitData.receiver,
-                protocolFeesPaid,
-                digest
-            );
-        } else {
-            // The order failed to fulfill, it could be bought already or invalid, make the best effort to send the user the value of the order they won.
-            (bool success, ) = commitData.receiver.call{value: orderAmount_}("");
-            if (success) {
-                treasuryBalance -= orderAmount_;
-            } else {
-                emit TransferFailure(commitData.id, commitData.receiver, orderAmount_, digest);
-            }
-
-            emit Fulfillment(
-                msg.sender,
-                commitData.id,
-                rng_,
-                odds_,
-                win_,
-                address(0),
-                0,
-                orderAmount_,
-                commitData.receiver,
-                protocolFeesPaid,
-                digest
-            );
-        }
     }
 
     /// @notice Allows the admin to withdraw ETH from the contract balance
@@ -516,7 +529,6 @@ contract PacksInitializable is
     {
         treasuryBalance = 0;
         commitBalance = 0;
-        protocolBalance = 0;
 
         uint256 currentBalance = address(this).balance;
 
@@ -541,15 +553,12 @@ contract PacksInitializable is
 
         isExpired[commitId_] = true;
 
-        CommitData memory commitData = luckyBuys[commitId_];
+        CommitData memory commitData = packs[commitId_];
 
         uint256 commitAmount = commitData.amount;
         commitBalance -= commitAmount;
 
-        uint256 protocolFeesPaid = feesPaid[commitId_];
-        protocolBalance -= protocolFeesPaid;
-
-        uint256 transferAmount = commitAmount + protocolFeesPaid;
+        uint256 transferAmount = commitAmount;
 
         (bool success, ) = payable(commitData.receiver).call{value: transferAmount}("");
         if (!success) {
