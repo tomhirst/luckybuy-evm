@@ -31,14 +31,13 @@ contract PacksInitializable is
 
     uint256 public constant MIN_COMMIT_EXPIRE_TIME = 1 minutes;
 
-    bytes32 public constant FEE_RECEIVER_MANAGER_ROLE =
-        keccak256("FEE_RECEIVER_MANAGER_ROLE");
+    bytes32 public constant FEE_RECEIVER_MANAGER_ROLE = keccak256("FEE_RECEIVER_MANAGER_ROLE");
 
     mapping(address cosigner => bool active) public isCosigner;
     mapping(address receiver => uint256 counter) public packCount;
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
     mapping(uint256 commitId => bool expired) public isExpired;
-    
+
     uint256 public payoutBps; // When user selects payout as reward
     uint256 public minReward; // Min reward for a commit (whether it's NFT or payout)
     uint256 public maxReward; // Max reward for a commit (whether it's NFT or payout)
@@ -47,7 +46,7 @@ contract PacksInitializable is
 
     // Storage gap for future upgrades
     uint256[50] private __gap;
-    
+
     // bucketsHash is BucketData[] hashed
     // digest is CommitData hashed
     // bucketsSignature is the bucketsHash signed by the cosigner to authenticate the buckets used in the pack
@@ -85,32 +84,14 @@ contract PacksInitializable is
         bytes32 digest
     );
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
-    event Withdrawal(
-        address indexed sender,
-        uint256 amount,
-        address feeReceiver
-    );
+    event Withdrawal(address indexed sender, uint256 amount, address feeReceiver);
     event Deposit(address indexed sender, uint256 amount);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
-    event CommitExpireTimeUpdated(
-        uint256 oldCommitExpireTime,
-        uint256 newCommitExpireTime
-    );
+    event CommitExpireTimeUpdated(uint256 oldCommitExpireTime, uint256 newCommitExpireTime);
     event CommitExpired(uint256 indexed commitId, bytes32 digest);
-    event FeeReceiverUpdated(
-        address indexed oldFeeReceiver,
-        address indexed newFeeReceiver
-    );
-    event FeeReceiverManagerTransferred(
-        address indexed oldFeeReceiverManager,
-        address indexed newFeeReceiverManager
-    );
-    event TransferFailure(
-        uint256 indexed commitId,
-        address indexed receiver,
-        uint256 amount,
-        bytes32 digest
-    );
+    event FeeReceiverUpdated(address indexed oldFeeReceiver, address indexed newFeeReceiver);
+    event FeeReceiverManagerTransferred(address indexed oldFeeReceiverManager, address indexed newFeeReceiverManager);
+    event TransferFailure(uint256 indexed commitId, address indexed receiver, uint256 amount, bytes32 digest);
 
     error AlreadyCosigner();
     error AlreadyFulfilled();
@@ -136,10 +117,9 @@ contract PacksInitializable is
     error NewImplementationCannotBeZero();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
-        if (
-            packs[commitId_].receiver != msg.sender &&
-            packs[commitId_].cosigner != msg.sender
-        ) revert InvalidCommitOwner();
+        if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
+            revert InvalidCommitOwner();
+        }
         _;
     }
 
@@ -150,12 +130,10 @@ contract PacksInitializable is
 
     /// @notice Initializes the contract and handles any pre-existing balance
     /// @dev Sets up EIP712 domain separator and deposits any ETH sent during deployment
-    function initialize(
-        address initialOwner_,
-        address feeReceiver_,
-        address prng_,
-        address feeReceiverManager_
-    ) public initializer {
+    function initialize(address initialOwner_, address feeReceiver_, address prng_, address feeReceiverManager_)
+        public
+        initializer
+    {
         if (initialOwner_ == address(0)) revert InitialOwnerCannotBeZero();
 
         __MEAccessControl_init(initialOwner_);
@@ -171,7 +149,7 @@ contract PacksInitializable is
         _setFeeReceiver(feeReceiver_);
         PRNG = IPRNG(prng_);
         _grantRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiverManager_);
-        
+
         // Initialize reward limits
         payoutBps = 9000;
         minReward = 0.01 ether;
@@ -204,7 +182,7 @@ contract PacksInitializable is
     ) public payable whenNotPaused returns (uint256) {
         // Amount user is sending to purchase the pack
         uint256 amount = msg.value;
-        
+
         if (amount == 0) revert InvalidAmount();
         if (amount < minPackPrice) revert InvalidAmount();
         if (amount > maxPackPrice) revert InvalidAmount();
@@ -223,7 +201,7 @@ contract PacksInitializable is
         if (minReward_ > maxReward_) revert InvalidReward();
         if (maxReward_ > maxReward) revert InvalidReward();
         if (minReward_ < minReward) revert InvalidReward();
-        
+
         // Validate pack hash
         bytes32 packHash = hashPack(amount, buckets_);
         // TODO: Potentially superfluous as caller controls all inputs
@@ -231,7 +209,7 @@ contract PacksInitializable is
 
         // Verify pack hash signature
         address cosigner = _verifyPackHash(packHash, signature_);
-         // TODO: Potentially superfluous as caller controls all inputs
+        // TODO: Potentially superfluous as caller controls all inputs
         if (cosigner != cosigner_) revert InvalidCosigner();
         // Ensure pack data was signed by approved cosigner
         if (!isCosigner[cosigner]) revert InvalidCosigner();
@@ -259,17 +237,7 @@ contract PacksInitializable is
         bytes32 digest = hash(commitData);
         commitIdByDigest[digest] = commitId;
 
-        emit Commit(
-            msg.sender,
-            commitId,
-            receiver_,
-            cosigner_,
-            seed_,
-            userCounter,
-            amount,
-            packHash,
-            digest
-        );
+        emit Commit(msg.sender, commitId, receiver_, cosigner_, seed_, userCounter, amount, packHash, digest);
 
         return commitId;
     }
@@ -327,7 +295,7 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata signature_,
+        bytes calldata signature_, // This needs to be the signed commitDigest
         bytes calldata signatureTwo_,
         bytes calldata receiverSignature_,
         uint256 payout_
@@ -390,8 +358,9 @@ contract PacksInitializable is
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
         // TODO: Handle user choice and fulfil order or payout
-        if (payout_ == 0) { // User selected NFT
-           // execute the market data to transfer the nft
+        if (payout_ == 0) {
+            // User selected NFT
+            // execute the market data to transfer the nft
             bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
             if (success) {
                 // subtract the order amount from the contract balance
@@ -412,14 +381,14 @@ contract PacksInitializable is
                 );
             } else {
                 // The order failed to fulfill, it could be bought already or invalid, make the best effort to send the user the value of the order they won.
-                (bool success, ) = commitData.receiver.call{value: orderAmount_}("");
+                (bool success,) = commitData.receiver.call{value: orderAmount_}("");
                 if (success) {
                     treasuryBalance -= orderAmount_;
                 } else {
                     emit TransferFailure(commitData.id, commitData.receiver, orderAmount_, digest);
                 }
-                 // emit the failure (they wanted the NFT but got the payout)
-                 emit Fulfillment(
+                // emit the failure (they wanted the NFT but got the payout)
+                emit Fulfillment(
                     msg.sender,
                     commitId_,
                     rng,
@@ -433,9 +402,10 @@ contract PacksInitializable is
                     digest
                 );
             }
-        } else { // User selected payout
+        } else {
+            // User selected payout
             // TODO: Handle payout
-            (bool success, ) = commitData.receiver.call{value: orderAmount_}("");
+            (bool success,) = commitData.receiver.call{value: orderAmount_}("");
             if (success) {
                 treasuryBalance -= orderAmount_;
             } else {
@@ -488,32 +458,29 @@ contract PacksInitializable is
         bytes calldata receiverSignature_,
         uint256 payout_
     ) public payable whenNotPaused {
-        return
-            fulfill(
-                commitIdByDigest[commitDigest_],
-                packPrice_,
-                buckets_,
-                bucketIndex_,
-                marketplace_,
-                orderData_,
-                orderAmount_,
-                token_,
-                tokenId_,
-                signature_
-            );
+        return fulfill(
+            commitIdByDigest[commitDigest_],
+            packPrice_,
+            buckets_,
+            bucketIndex_,
+            marketplace_,
+            orderData_,
+            orderAmount_,
+            token_,
+            tokenId_,
+            signature_
+        );
     }
 
     /// @notice Allows the admin to withdraw ETH from the contract balance
     /// @param amount The amount of ETH to withdraw
     /// @dev Only callable by admin role
     /// @dev Emits a Withdrawal event
-    function withdraw(
-        uint256 amount
-    ) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
+    function withdraw(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         if (amount > treasuryBalance) revert InsufficientBalance();
         treasuryBalance -= amount;
 
-        (bool success, ) = payable(feeReceiver).call{value: amount}("");
+        (bool success,) = payable(feeReceiver).call{value: amount}("");
         if (!success) revert WithdrawalFailed();
 
         emit Withdrawal(msg.sender, amount, feeReceiver);
@@ -522,11 +489,7 @@ contract PacksInitializable is
     /// @notice Allows the admin to withdraw all ETH from the contract
     /// @dev Only callable by admin role
     /// @dev Emits a Withdrawal event
-    function emergencyWithdraw()
-        external
-        nonReentrant
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function emergencyWithdraw() external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         treasuryBalance = 0;
         commitBalance = 0;
 
@@ -542,14 +505,13 @@ contract PacksInitializable is
     /// @param commitId_ ID of the commit to expire
     /// @dev Only callable by the commit owner
     /// @dev Emits a CommitExpired event
-    function expire(
-        uint256 commitId_
-    ) external onlyCommitOwnerOrCosigner(commitId_) nonReentrant {
+    function expire(uint256 commitId_) external onlyCommitOwnerOrCosigner(commitId_) nonReentrant {
         if (commitId_ >= packs.length) revert InvalidCommitId();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isExpired[commitId_]) revert CommitIsExpired();
-        if (block.timestamp < commitExpiresAt[commitId_])
+        if (block.timestamp < commitExpiresAt[commitId_]) {
             revert CommitNotExpired();
+        }
 
         isExpired[commitId_] = true;
 
@@ -560,7 +522,7 @@ contract PacksInitializable is
 
         uint256 transferAmount = commitAmount;
 
-        (bool success, ) = payable(commitData.receiver).call{value: transferAmount}("");
+        (bool success,) = payable(commitData.receiver).call{value: transferAmount}("");
         if (!success) {
             treasuryBalance += transferAmount;
             emit TransferFailure(commitId_, commitData.receiver, transferAmount, hash(commitData));
@@ -573,11 +535,7 @@ contract PacksInitializable is
     // ############ RESCUE FUNCTIONS ############
     // ############################################################
 
-    function rescueERC20(
-        address token,
-        address to,
-        uint256 amount
-    ) external onlyRole(RESCUE_ROLE) {
+    function rescueERC20(address token, address to, uint256 amount) external onlyRole(RESCUE_ROLE) {
         address[] memory tokens = new address[](1);
         address[] memory tos = new address[](1);
         uint256[] memory amounts = new uint256[](1);
@@ -589,11 +547,7 @@ contract PacksInitializable is
         _rescueERC20Batch(tokens, tos, amounts);
     }
 
-    function rescueERC721(
-        address token,
-        address to,
-        uint256 tokenId
-    ) external onlyRole(RESCUE_ROLE) {
+    function rescueERC721(address token, address to, uint256 tokenId) external onlyRole(RESCUE_ROLE) {
         address[] memory tokens = new address[](1);
         address[] memory tos = new address[](1);
         uint256[] memory tokenIds = new uint256[](1);
@@ -605,12 +559,7 @@ contract PacksInitializable is
         _rescueERC721Batch(tokens, tos, tokenIds);
     }
 
-    function rescueERC1155(
-        address token,
-        address to,
-        uint256 tokenId,
-        uint256 amount
-    ) external onlyRole(RESCUE_ROLE) {
+    function rescueERC1155(address token, address to, uint256 tokenId, uint256 amount) external onlyRole(RESCUE_ROLE) {
         address[] memory tokens = new address[](1);
         address[] memory tos = new address[](1);
         uint256[] memory tokenIds = new uint256[](1);
@@ -624,19 +573,17 @@ contract PacksInitializable is
         _rescueERC1155Batch(tokens, tos, tokenIds, amounts);
     }
 
-    function rescueERC20Batch(
-        address[] calldata tokens,
-        address[] calldata tos,
-        uint256[] calldata amounts
-    ) external onlyRole(RESCUE_ROLE) {
+    function rescueERC20Batch(address[] calldata tokens, address[] calldata tos, uint256[] calldata amounts)
+        external
+        onlyRole(RESCUE_ROLE)
+    {
         _rescueERC20Batch(tokens, tos, amounts);
     }
 
-    function rescueERC721Batch(
-        address[] calldata tokens,
-        address[] calldata tos,
-        uint256[] calldata tokenIds
-    ) external onlyRole(RESCUE_ROLE) {
+    function rescueERC721Batch(address[] calldata tokens, address[] calldata tos, uint256[] calldata tokenIds)
+        external
+        onlyRole(RESCUE_ROLE)
+    {
         _rescueERC721Batch(tokens, tos, tokenIds);
     }
 
@@ -657,9 +604,7 @@ contract PacksInitializable is
     /// @param cosigner_ Address to add as cosigner
     /// @dev Only callable by admin role
     /// @dev Emits a CoSignerAdded event
-    function addCosigner(
-        address cosigner_
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addCosigner(address cosigner_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (cosigner_ == address(0)) revert InvalidCosigner();
         if (isCosigner[cosigner_]) revert AlreadyCosigner();
         isCosigner[cosigner_] = true;
@@ -670,9 +615,7 @@ contract PacksInitializable is
     /// @param cosigner_ Address to remove as cosigner
     /// @dev Only callable by admin role
     /// @dev Emits a CoSignerRemoved event
-    function removeCosigner(
-        address cosigner_
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function removeCosigner(address cosigner_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (!isCosigner[cosigner_]) revert InvalidCosigner();
         isCosigner[cosigner_] = false;
         emit CosignerRemoved(cosigner_);
@@ -682,11 +625,10 @@ contract PacksInitializable is
     /// @param commitExpireTime_ New commit expire time
     /// @dev Only callable by admin role
     /// @dev Emits a CommitExpireTimeUpdated event
-    function setCommitExpireTime(
-        uint256 commitExpireTime_
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (commitExpireTime_ < MIN_COMMIT_EXPIRE_TIME)
+    function setCommitExpireTime(uint256 commitExpireTime_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (commitExpireTime_ < MIN_COMMIT_EXPIRE_TIME) {
             revert InvalidCommitExpireTime();
+        }
         uint256 oldCommitExpireTime = commitExpireTime;
         commitExpireTime = commitExpireTime_;
         emit CommitExpireTimeUpdated(oldCommitExpireTime, commitExpireTime_);
@@ -706,9 +648,7 @@ contract PacksInitializable is
     /// @notice Sets the minimum allowed reward
     /// @param minReward_ New minimum reward value
     /// @dev Only callable by admin role
-    function setMinReward(
-        uint256 minReward_
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setMinReward(uint256 minReward_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (minReward_ > maxReward) revert InvalidReward();
         if (minReward_ < minReward) revert InvalidReward();
 
@@ -748,30 +688,23 @@ contract PacksInitializable is
     /// @param data Calldata for the transaction
     /// @param amount Amount of ETH to send
     /// @return success Whether the transaction was successful
-    function _fulfillOrder(
-        address to,
-        bytes calldata data,
-        uint256 amount
-    ) internal returns (bool success) {
-        (success, ) = to.call{value: amount}(data);
+    function _fulfillOrder(address to, bytes calldata data, uint256 amount) internal returns (bool success) {
+        (success,) = to.call{value: amount}(data);
     }
 
     /// @notice Transfers the fee receiver manager role
     /// @param newFeeReceiverManager_ New fee receiver manager
     /// @dev Only callable by fee receiver manager role
-    function transferFeeReceiverManager(
-        address newFeeReceiverManager_
-    ) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
-        if (newFeeReceiverManager_ == address(0))
+    function transferFeeReceiverManager(address newFeeReceiverManager_) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
+        if (newFeeReceiverManager_ == address(0)) {
             revert InvalidFeeReceiverManager();
+        }
         _transferFeeReceiverManager(newFeeReceiverManager_);
     }
-    
+
     /// @notice Transfers the fee receiver manager role
     /// @param newFeeReceiverManager_ New fee receiver manager
-    function _transferFeeReceiverManager(
-        address newFeeReceiverManager_
-    ) internal {
+    function _transferFeeReceiverManager(address newFeeReceiverManager_) internal {
         _revokeRole(FEE_RECEIVER_MANAGER_ROLE, msg.sender);
         _grantRole(FEE_RECEIVER_MANAGER_ROLE, newFeeReceiverManager_);
         emit FeeReceiverManagerTransferred(msg.sender, newFeeReceiverManager_);
@@ -780,9 +713,7 @@ contract PacksInitializable is
     /// @notice Sets the fee receiver
     /// @param feeReceiver_ Address to set as fee receiver
     /// @dev Only callable by fee receiver manager role
-    function setFeeReceiver(
-        address feeReceiver_
-    ) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
+    function setFeeReceiver(address feeReceiver_) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
         _setFeeReceiver(feeReceiver_);
     }
 
@@ -790,10 +721,29 @@ contract PacksInitializable is
     /// @param feeReceiver_ Address to set as fee receiver
     function _setFeeReceiver(address feeReceiver_) internal {
         if (feeReceiver_ == address(0)) revert InvalidFeeReceiver();
-        if (hasRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiver_))
+        if (hasRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiver_)) {
             revert InvalidFeeReceiverManager();
+        }
         address oldFeeReceiver = feeReceiver;
         feeReceiver = payable(feeReceiver_);
         emit FeeReceiverUpdated(oldFeeReceiver, feeReceiver_);
+    }
+    
+    /// TODO: Bucket util, return index 0 as default?
+    /// @notice Calculate which bucket would be selected for a given RNG value
+    /// @param rng RNG value (0-10000)
+    /// @param buckets Array of bucket data
+    /// @return bucketIndex Index of the selected bucket
+    function calculateBucketIndex(uint256 rng, BucketData[] memory buckets) 
+        public 
+        pure 
+        returns (uint256 bucketIndex) 
+    {
+        for (uint256 i = 0; i < buckets.length; i++) {
+            if (rng < buckets[i].odds) {
+                return i;
+            }
+        }
+        revert("No bucket selected");
     }
 }

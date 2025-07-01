@@ -20,12 +20,10 @@ interface IPacksSignatureVerifier {
         bytes32 packHash;
     }
 
-    function hash(
-        IPacksSignatureVerifier.CommitData memory commit
-    ) external view returns (bytes32);
+    function hash(IPacksSignatureVerifier.CommitData memory commit) external view returns (bytes32);
 
-    function verify(
-        IPacksSignatureVerifier.CommitData memory commit,
-        bytes memory signature
-    ) external view returns (address);
+    function verify(IPacksSignatureVerifier.CommitData memory commit, bytes memory signature)
+        external
+        view
+        returns (address);
 }
