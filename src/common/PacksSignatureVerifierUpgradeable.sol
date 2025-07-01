@@ -125,7 +125,11 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     /// @param receiverChoiceHash Receiver choice to verify
     /// @param signature Signature to verify
     /// @return Address of the signer
-    function _verifyReceiverChoice(bytes32 receiverChoiceHash, bytes memory signature) internal view returns (address) {
+    function _verifyReceiverChoice(bytes32 receiverChoiceHash, bytes memory signature)
+        internal
+        view
+        returns (address)
+    {
         return ECDSA.recover(receiverChoiceHash, signature);
     }
 }

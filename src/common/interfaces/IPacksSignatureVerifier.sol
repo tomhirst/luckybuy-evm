@@ -23,6 +23,7 @@ interface IPacksSignatureVerifier {
     enum FulfillmentOption {
         Payout, // Default choice - no signature required
         NFT // Requires receiver signature
+
     }
 
     function hash(IPacksSignatureVerifier.CommitData memory commit) external view returns (bytes32);

@@ -313,7 +313,7 @@ contract PacksInitializable is
         address digestCosigner = _verifyDigest(digest, digestSignature_);
         if (digestCosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[digestCosigner]) revert InvalidCosigner();
-        
+
         // 3. Check the cosigner signed the order hash
         bytes32 orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
         address orderCosigner = _verifyOrderHash(orderHash, orderSignature_);
@@ -392,7 +392,7 @@ contract PacksInitializable is
             // Default payout fulfillment route (user selected on the front end or otherwise)
             // Calculate payout amount based on NFT value and payoutBps
             uint256 payoutAmount = (orderAmount_ * payoutBps) / 10000;
-            
+
             (bool success,) = commitData.receiver.call{value: payoutAmount}("");
             if (success) {
                 treasuryBalance -= payoutAmount;
@@ -650,7 +650,7 @@ contract PacksInitializable is
     /// @dev Emits a MinPackPriceUpdated event
     function setMinPackPrice(uint256 minPackPrice_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (minPackPrice_ > maxPackPrice) revert InvalidPackPrice();
-       
+
         uint256 oldMinPackPrice = minPackPrice;
         minPackPrice = minPackPrice_;
         emit MinPackPriceUpdated(oldMinPackPrice, minPackPrice_);
@@ -749,15 +749,12 @@ contract PacksInitializable is
         feeReceiver = payable(feeReceiver_);
         emit FeeReceiverUpdated(oldFeeReceiver, feeReceiver_);
     }
-    
+
     /// @notice Get the index of the bucket selected for a given RNG value
     /// @param rng RNG value (0-10000)
     /// @param buckets Array of bucket data
     /// @return bucketIndex Index of the selected bucket
-    function _getBucketIndex(uint256 rng, BucketData[] memory buckets) 
-        internal pure
-        returns (uint256 bucketIndex) 
-    {
+    function _getBucketIndex(uint256 rng, BucketData[] memory buckets) internal pure returns (uint256 bucketIndex) {
         for (uint256 i = 0; i < buckets.length; i++) {
             if (rng < buckets[i].oddsBps) {
                 return i;
