@@ -120,6 +120,7 @@ contract PacksInitializable is
     error InvalidFeeReceiverManager();
     error InitialOwnerCannotBeZero();
     error NewImplementationCannotBeZero();
+    error BucketSelectionFailed();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
@@ -182,7 +183,7 @@ contract PacksInitializable is
         address cosigner_,
         uint256 seed_,
         bytes32 packHash_,
-        BucketData[] memory buckets_,
+        IPacksSignatureVerifier.BucketData[] memory buckets_,
         bytes32 signature_
     ) public payable whenNotPaused returns (uint256) {
         // Amount user is sending to purchase the pack
@@ -261,7 +262,7 @@ contract PacksInitializable is
     function fulfill(
         uint256 commitId_,
         uint256 packPrice_,
-        BucketData[] memory buckets_,
+        IPacksSignatureVerifier.BucketData[] memory buckets_,
         uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
@@ -293,7 +294,7 @@ contract PacksInitializable is
     function _fulfill(
         uint256 commitId_,
         uint256 packPrice_,
-        BucketData[] memory buckets_,
+        IPacksSignatureVerifier.BucketData[] memory buckets_,
         uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
@@ -337,8 +338,8 @@ contract PacksInitializable is
 
         // Collect the commit balance
         // transfer the commit balance to the contract
-        treasuryBalance += commitData.amount;
-        commitBalance -= commitData.amount;
+        treasuryBalance += commitData.packPrice;
+        commitBalance -= commitData.packPrice;
 
         // TODO: Check that the reciever signed the choice
         address receiver = _verifyDigest(digest, receiverSignature_);
@@ -347,18 +348,12 @@ contract PacksInitializable is
         // TODO: We need to validate that given the same commit bucket array param and signature the same bucket is selected
         // on chain as the off chain parameters passed in to this function
         uint256 rng = PRNG.rng(signature_);
+        uint256 bucketIndex = _getBucketIndex(rng, buckets_);
 
-        uint256 bucketIndex;
-        for (uint256 i = 0; i < buckets_.length; i++) {
-            if (rng < buckets_[i].odds) {
-                bucketIndex = i;
-                break;
-            }
-        }
         if (bucketIndex != bucketIndex_) revert InvalidBucketIndex();
 
         // TODO: Ensure that orderAmount is within bucket range
-        BucketData memory bucket = buckets_[bucketIndex];
+        IPacksSignatureVerifier.BucketData memory bucket = buckets_[bucketIndex];
         if (orderAmount_ < bucket.minValue) revert InvalidAmount();
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
@@ -451,7 +446,7 @@ contract PacksInitializable is
     function fulfillByDigest(
         bytes32 commitDigest_,
         uint256 packPrice_,
-        BucketData[] memory buckets_,
+        IPacksSignatureVerifier.BucketData[] memory buckets_,
         uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
@@ -681,7 +676,7 @@ contract PacksInitializable is
     /// @dev Emits a MaxPackPriceUpdated event
     function setMaxPackPrice(uint256 maxPackPrice_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (maxPackPrice_ < minPackPrice) revert InvalidPackPrice();
-        
+
         uint256 oldMaxPackPrice = maxPackPrice;
         maxPackPrice = maxPackPrice_;
         emit MaxPackPriceUpdated(oldMaxPackPrice, maxPackPrice_);
@@ -769,14 +764,12 @@ contract PacksInitializable is
         emit FeeReceiverUpdated(oldFeeReceiver, feeReceiver_);
     }
     
-    /// TODO: Bucket util, return index 0 as default?
-    /// @notice Calculate which bucket would be selected for a given RNG value
+    /// @notice Get the index of the bucket selected for a given RNG value
     /// @param rng RNG value (0-10000)
     /// @param buckets Array of bucket data
     /// @return bucketIndex Index of the selected bucket
-    function calculateBucketIndex(uint256 rng, BucketData[] memory buckets) 
-        public 
-        pure 
+    function _getBucketIndex(uint256 rng, IPacksSignatureVerifier.BucketData[] memory buckets) 
+        internal 
         returns (uint256 bucketIndex) 
     {
         for (uint256 i = 0; i < buckets.length; i++) {
@@ -784,6 +777,6 @@ contract PacksInitializable is
                 return i;
             }
         }
-        revert("No bucket selected");
+        revert BucketSelectionFailed();
     }
 }
