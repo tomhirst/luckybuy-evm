@@ -115,6 +115,7 @@ contract PacksInitializable is
     error NewImplementationCannotBeZero();
     error BucketSelectionFailed();
     error InvalidRng();
+    error InvalidFulfillmentOption();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
@@ -327,12 +328,9 @@ contract PacksInitializable is
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
         // 5. Check the fulfillment option
-        // Note: We will not revert here if receiver signature is invalid,
-        // because we only want to fulfill via NFT if the receiver explicitly requests it.
-        // We will always fulfill with payout if the receiver does not sign the NFT choice.
         bytes32 receiverChoiceHash = hashReceiverChoice(digest, receiverChoice_);
         address receiver = _verifyReceiverChoice(receiverChoiceHash, receiverSignature_);
-        bool isNftFulfillment = receiverChoice_ == FulfillmentOption.NFT && receiver == commitData.receiver;
+        if (receiver != commitData.receiver) revert InvalidReceiver();
 
         // Mark the commit as fulfilled
         isFulfilled[commitId_] = true;
@@ -343,7 +341,7 @@ contract PacksInitializable is
         commitBalance -= commitData.packPrice;
 
         // Handle user choice and fulfil order or payout
-        if (isNftFulfillment) {
+        if (receiverChoice_ == FulfillmentOption.NFT) {
             // execute the market data to transfer the nft
             bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
             if (success) {
