@@ -84,11 +84,14 @@ contract PacksInitializable is
         bytes32 digest
     );
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
+    event MaxPackPriceUpdated(uint256 oldMaxPackPrice, uint256 newMaxPackPrice);
     event Withdrawal(address indexed sender, uint256 amount, address feeReceiver);
     event Deposit(address indexed sender, uint256 amount);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
+    event MinPackPriceUpdated(uint256 oldMinPackPrice, uint256 newMinPackPrice);
     event CommitExpireTimeUpdated(uint256 oldCommitExpireTime, uint256 newCommitExpireTime);
     event CommitExpired(uint256 indexed commitId, bytes32 digest);
+    event PayoutBpsUpdated(uint256 oldPayoutBps, uint256 newPayoutBps);
     event FeeReceiverUpdated(address indexed oldFeeReceiver, address indexed newFeeReceiver);
     event FeeReceiverManagerTransferred(address indexed oldFeeReceiverManager, address indexed newFeeReceiverManager);
     event TransferFailure(uint256 indexed commitId, address indexed receiver, uint256 amount, bytes32 digest);
@@ -104,6 +107,7 @@ contract PacksInitializable is
     error InvalidCosigner();
     error InvalidReceiver();
     error InvalidReward();
+    error InvalidPackPrice();
     error FulfillmentFailed();
     error InvalidCommitId();
     error WithdrawalFailed();
@@ -111,6 +115,7 @@ contract PacksInitializable is
     error CommitIsExpired();
     error CommitNotExpired();
     error TransferFailed();
+    error InvalidPayoutBps();
     error InvalidFeeReceiver();
     error InvalidFeeReceiverManager();
     error InitialOwnerCannotBeZero();
@@ -656,6 +661,41 @@ contract PacksInitializable is
         minReward = minReward_;
 
         emit MinRewardUpdated(oldMinReward, minReward_);
+    }
+
+    /// @notice Sets the minimum pack price
+    /// @param minPackPrice_ New minimum pack price
+    /// @dev Only callable by admin role
+    /// @dev Emits a MinPackPriceUpdated event
+    function setMinPackPrice(uint256 minPackPrice_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (minPackPrice_ > maxPackPrice) revert InvalidPackPrice();
+       
+        uint256 oldMinPackPrice = minPackPrice;
+        minPackPrice = minPackPrice_;
+        emit MinPackPriceUpdated(oldMinPackPrice, minPackPrice_);
+    }
+
+    /// @notice Sets the maximum pack price
+    /// @param maxPackPrice_ New maximum pack price
+    /// @dev Only callable by admin role
+    /// @dev Emits a MaxPackPriceUpdated event
+    function setMaxPackPrice(uint256 maxPackPrice_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (maxPackPrice_ < minPackPrice) revert InvalidPackPrice();
+        
+        uint256 oldMaxPackPrice = maxPackPrice;
+        maxPackPrice = maxPackPrice_;
+        emit MaxPackPriceUpdated(oldMaxPackPrice, maxPackPrice_);
+    }
+
+    /// @notice Sets the payout basis points
+    /// @param payoutBps_ New payout basis points
+    /// @dev Only callable by admin role
+    /// @dev Emits a PayoutBpsUpdated event
+    function setPayoutBps(uint256 payoutBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (payoutBps_ > 10000) revert InvalidPayoutBps();
+        uint256 oldPayoutBps = payoutBps;
+        payoutBps = payoutBps_;
+        emit PayoutBpsUpdated(oldPayoutBps, payoutBps_);
     }
 
     /// @notice Deposits ETH into the treasury
