@@ -65,6 +65,14 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
         );
     }
 
+    /// @notice Hashes the receiver choice data for signature validation
+    /// @param digest The commit digest
+    /// @param choice The receiver's choice
+    /// @return Hash of the choice data
+    function hashReceiverChoice(bytes32 digest, FulfillmentOption choice) public pure returns (bytes32) {
+        return keccak256(abi.encode(digest, choice));
+    }
+
     /// @notice Verifies the signature for a given Commit, returning the address of the signer.
     /// @dev Will revert if the signature is invalid. Does not verify that the signer is authorized to mint NFTs.
     /// @param commit A commit.
@@ -111,5 +119,13 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     /// @return Address of the signer
     function _verifyFulfillmentHash(bytes32 fulfillmentHash, bytes memory signature) internal view returns (address) {
         return ECDSA.recover(fulfillmentHash, signature);
+    }
+
+    /// @dev Internal function to verify a receiver choice
+    /// @param receiverChoiceHash Receiver choice to verify
+    /// @param signature Signature to verify
+    /// @return Address of the signer
+    function _verifyReceiverChoice(bytes32 receiverChoiceHash, bytes memory signature) internal view returns (address) {
+        return ECDSA.recover(receiverChoiceHash, signature);
     }
 }
