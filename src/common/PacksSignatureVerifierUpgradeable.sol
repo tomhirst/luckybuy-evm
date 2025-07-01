@@ -104,4 +104,12 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     function _verifyOrderHash(bytes32 orderHash, bytes memory signature) internal view returns (address) {
         return ECDSA.recover(orderHash, signature);
     }
+
+    /// @dev Internal function to verify a fulfillment hash
+    /// @param fulfillmentHash Fulfillment hash to verify
+    /// @param signature Signature to verify
+    /// @return Address of the signer
+    function _verifyFulfillmentHash(bytes32 fulfillmentHash, bytes memory signature) internal view returns (address) {
+        return ECDSA.recover(fulfillmentHash, signature);
+    }
 }

@@ -183,7 +183,7 @@ contract PacksInitializable is
         address cosigner_,
         uint256 seed_,
         bytes32 packHash_,
-        IPacksSignatureVerifier.BucketData[] memory buckets_,
+        BucketData[] memory buckets_,
         bytes32 signature_
     ) public payable whenNotPaused returns (uint256) {
         // Amount user is sending to purchase the pack
@@ -262,15 +262,14 @@ contract PacksInitializable is
     function fulfill(
         uint256 commitId_,
         uint256 packPrice_,
-        IPacksSignatureVerifier.BucketData[] memory buckets_,
+        BucketData[] memory buckets_,
         uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata signature_, // cosigner signed orderData
-        bytes calldata signatureTwo_, // cosigner signed commitData
+        bytes calldata signature_, // cosigner signed hash(commitData, orderData(marketplace, orderAmount, orderData, token, tokenId))
         bytes calldata receiverSignature_, // receiver signed choice
         uint256 payout_
     ) public payable whenNotPaused {
@@ -285,7 +284,6 @@ contract PacksInitializable is
             token_,
             tokenId_,
             signature_,
-            signatureTwo_,
             receiverSignature_,
             payout_
         );
@@ -294,15 +292,14 @@ contract PacksInitializable is
     function _fulfill(
         uint256 commitId_,
         uint256 packPrice_,
-        IPacksSignatureVerifier.BucketData[] memory buckets_,
+        BucketData[] memory buckets_,
         uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata signature_, // This needs to be the signed commitDigest
-        bytes calldata signatureTwo_,
+        bytes calldata signature_,
         bytes calldata receiverSignature_,
         uint256 payout_
     ) internal nonReentrant {
@@ -323,18 +320,16 @@ contract PacksInitializable is
         // TODO: Potentially superfluous if we check the cosigner signs the commit digest
         if (commitData.packHash != hashPack(packPrice_, buckets_)) revert InvalidPackHash();
 
-        // Verify orderHash was signed by cosigner
+        // Verify digest and orderHash were signed by cosigner
+        bytes32 digest = hash(commitData);
         bytes32 orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
-        address cosigner = _verifyOrderHash(orderHash, receiverSignature_);
+
+        // hash digest and orderHash together
+        bytes32 fulfillmentHash = keccak256(abi.encode(digest, orderHash));
+
+        address cosigner = _verifyFulfillmentHash(fulfillmentHash, signature_);
         if (cosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[cosigner]) revert InvalidCosigner();
-
-        // hash commit, check signature. digest is needed later for logging
-        // TODO: Hash orderData and commitData together to check one signature instead of two
-        bytes32 digest = hash(commitData);
-        address cosignerTwo = _verifyDigest(digest, signatureTwo_);
-        if (cosignerTwo != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[cosignerTwo]) revert InvalidCosigner();
 
         // Collect the commit balance
         // transfer the commit balance to the contract
@@ -353,7 +348,7 @@ contract PacksInitializable is
         if (bucketIndex != bucketIndex_) revert InvalidBucketIndex();
 
         // TODO: Ensure that orderAmount is within bucket range
-        IPacksSignatureVerifier.BucketData memory bucket = buckets_[bucketIndex];
+        BucketData memory bucket = buckets_[bucketIndex];
         if (orderAmount_ < bucket.minValue) revert InvalidAmount();
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
@@ -446,7 +441,7 @@ contract PacksInitializable is
     function fulfillByDigest(
         bytes32 commitDigest_,
         uint256 packPrice_,
-        IPacksSignatureVerifier.BucketData[] memory buckets_,
+        BucketData[] memory buckets_,
         uint256 bucketIndex_,
         address marketplace_,
         bytes calldata orderData_,
@@ -768,7 +763,7 @@ contract PacksInitializable is
     /// @param rng RNG value (0-10000)
     /// @param buckets Array of bucket data
     /// @return bucketIndex Index of the selected bucket
-    function _getBucketIndex(uint256 rng, IPacksSignatureVerifier.BucketData[] memory buckets) 
+    function _getBucketIndex(uint256 rng, BucketData[] memory buckets) 
         internal 
         returns (uint256 bucketIndex) 
     {
