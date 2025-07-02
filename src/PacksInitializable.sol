@@ -194,14 +194,19 @@ contract PacksInitializable is
 
         if (buckets_.length == 0) revert InvalidBuckets();
 
-        uint256 minReward_ = buckets_[0].minValue;
-        uint256 maxReward_ = buckets_[buckets_.length - 1].maxValue;
+        // Validate bucket's min and max values
+        for (uint256 i = 0; i < buckets_.length; i++) {
+            if (buckets_[i].minValue == 0) revert InvalidReward();
+            if (buckets_[i].maxValue == 0) revert InvalidReward();
+            if (buckets_[i].minValue > buckets_[i].maxValue) revert InvalidReward();
+            if (buckets_[i].minValue < minReward) revert InvalidReward();
+            if (buckets_[i].maxValue > maxReward) revert InvalidReward();
+        }
 
-        if (minReward_ == 0) revert InvalidReward();
-        if (maxReward_ == 0) revert InvalidReward();
-        if (minReward_ > maxReward_) revert InvalidReward();
-        if (maxReward_ > maxReward) revert InvalidReward();
-        if (minReward_ < minReward) revert InvalidReward();
+        // Validate bucket's are in ascending value range order
+        for (uint256 i = 0; i < buckets_.length - 1; i++) {
+            if (buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
+        }
 
         // Validate pack hash
         bytes32 packHash = hashPack(amount, buckets_);
