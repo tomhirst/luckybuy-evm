@@ -37,6 +37,7 @@ contract PacksInitializable is
     mapping(address receiver => uint256 counter) public packCount;
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
     mapping(uint256 commitId => bool expired) public isExpired;
+    mapping(uint256 commitId => bytes32 orderHash) public orderHash;
 
     uint256 public payoutBps; // When user selects payout as reward
     uint256 public minReward; // Min reward for a commit (whether it's NFT or payout)
@@ -320,17 +321,30 @@ contract PacksInitializable is
         if (digestCosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[digestCosigner]) revert InvalidCosigner();
 
-        // 3. Check the cosigner signed the order hash
-        bytes32 orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
-        address orderCosigner = _verifyOrderHash(orderHash, orderSignature_);
-        if (orderCosigner != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[orderCosigner]) revert InvalidCosigner();
-
-        // 4. Ensure that orderAmount is within bucket range
+        // 3. Determine bucket and validate orderAmount is within bucket range
         uint256 bucketIndex = _getBucketIndex(rng, commitData.buckets);
         BucketData memory bucket = commitData.buckets[bucketIndex];
         if (orderAmount_ < bucket.minValue) revert InvalidAmount();
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
+
+        // Note: If we have an existing order hash for the commit, load it from storage
+        // We do this to ensure only one NFT purchase order is ever tied to a commit
+        // This prevents potentially presenting different NFT rewards for a commit with
+        // the same RNG, and bucket index selection if the commit goes unfulfilled
+        // and the NFT in the orderData goes out of the bucket range
+        bytes32 _orderHash = orderHash[commitId_];
+        if (_orderHash == bytes32(0)) {
+            // If no order hash exists, hash the order data passed in
+            _orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
+        }
+
+        // 4. Check the cosigner signed the order hash
+        address orderCosigner = _verifyOrderHash(_orderHash, orderSignature_);
+        if (orderCosigner != commitData.cosigner) revert InvalidCosigner();
+        if (!isCosigner[orderCosigner]) revert InvalidCosigner();
+
+        // Store the order hash once we've validated it
+        orderHash[commitId_] = _orderHash;
 
         // 5. Check the fulfillment option
         bytes32 receiverChoiceHash = hashReceiverChoice(digest, receiverChoice_);
