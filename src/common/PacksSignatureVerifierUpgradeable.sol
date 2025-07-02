@@ -69,7 +69,7 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     /// @param digest The commit digest
     /// @param choice The receiver's choice
     /// @return Hash of the choice data
-    function hashReceiverChoice(bytes32 digest, FulfillmentOption choice) public pure returns (bytes32) {
+    function hashChoice(bytes32 digest, FulfillmentOption choice) public pure returns (bytes32) {
         return keccak256(abi.encode(digest, choice));
     }
 
@@ -121,15 +121,11 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
         return ECDSA.recover(fulfillmentHash, signature);
     }
 
-    /// @dev Internal function to verify a receiver choice
-    /// @param receiverChoiceHash Receiver choice to verify
+    /// @dev Internal function to verify a choice
+    /// @param choiceHash Choice to verify
     /// @param signature Signature to verify
     /// @return Address of the signer
-    function _verifyReceiverChoice(bytes32 receiverChoiceHash, bytes memory signature)
-        internal
-        view
-        returns (address)
-    {
-        return ECDSA.recover(receiverChoiceHash, signature);
+    function _verifyChoice(bytes32 choiceHash, bytes memory signature) internal view returns (address) {
+        return ECDSA.recover(choiceHash, signature);
     }
 }

@@ -75,7 +75,7 @@ contract PacksInitializable is
         uint256 tokenId,
         uint256 amount,
         address receiver,
-        FulfillmentOption receiverChoice,
+        FulfillmentOption choice,
         bytes32 digest
     );
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
@@ -100,6 +100,7 @@ contract PacksInitializable is
     error InvalidPackHash();
     error InvalidCosigner();
     error InvalidReceiver();
+    error InvalidChoiceSigner();
     error InvalidReward();
     error InvalidPackPrice();
     error FulfillmentFailed();
@@ -194,7 +195,9 @@ contract PacksInitializable is
         if (cosigner_ == address(0)) revert InvalidCosigner();
         if (receiver_ == address(0)) revert InvalidReceiver();
 
+        // Validate bucket count
         if (buckets_.length == 0) revert InvalidBuckets();
+        if (buckets_.length > 5) revert InvalidBuckets();
 
         // Validate bucket's min and max values
         for (uint256 i = 0; i < buckets_.length; i++) {
@@ -205,10 +208,20 @@ contract PacksInitializable is
             if (buckets_[i].maxValue > maxReward) revert InvalidReward();
         }
 
-        // Validate bucket's are in ascending value range order
-        for (uint256 i = 0; i < buckets_.length - 1; i++) {
+        // Validate bucket's are in ascending value range and cumulative odds order
+        uint256 cumulativeOdds = 0;
+        for (uint256 i = 0; i < buckets_.length; i++) {
             if (buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
+            if (buckets_[i].oddsBps == 0) revert InvalidBuckets();
+            if (buckets_[i].oddsBps > 10000) revert InvalidBuckets();
+
+            // Check that oddsBps represents cumulative odds (each bucket should have higher cumulative odds)
+            cumulativeOdds += buckets_[i].oddsBps;
+            if (i < buckets_.length - 1 && cumulativeOdds >= buckets_[i + 1].oddsBps) revert InvalidBuckets();
         }
+
+        // Final cumulative odds check (this is already correct)
+        if (cumulativeOdds != 10000) revert InvalidBuckets();
 
         // Validate pack hash
         bytes32 packHash = hashPack(amount, buckets_);
@@ -260,8 +273,8 @@ contract PacksInitializable is
     /// @param tokenId_ ID of the token if it's an NFT
     /// @param digestSignature_ Signature used for random number generation (and to validate orderData)
     /// @param orderSignature_ Signature used for orderData (and to validate orderData)
-    /// @param receiverChoice_ Choice made by the receiver (Payout = 0, NFT = 1)
-    /// @param receiverSignature_ Signature used for receiver's choice (only required for NFT choice)
+    /// @param choice_ Choice made by the receiver (Payout = 0, NFT = 1)
+    /// @param choiceSignature_ Signature used for receiver's choice (only required for NFT choice)
     /// @dev Emits a Fulfillment event on success
     function fulfill(
         uint256 commitId_,
@@ -273,8 +286,8 @@ contract PacksInitializable is
         uint256 tokenId_,
         bytes calldata digestSignature_, // cosigner signed hash(commitData)
         bytes calldata orderSignature_, // cosigner signed hash(orderData(marketplace, orderAmount, orderData, token, tokenId))
-        FulfillmentOption receiverChoice_,
-        bytes calldata receiverSignature_ // receiver signed choice (only for NFT choice)
+        FulfillmentOption choice_,
+        bytes calldata choiceSignature_ // receiver signed choice (only for NFT choice)
     ) public payable whenNotPaused {
         _fulfill(
             commitId_,
@@ -286,8 +299,8 @@ contract PacksInitializable is
             tokenId_,
             digestSignature_,
             orderSignature_,
-            receiverChoice_,
-            receiverSignature_
+            choice_,
+            choiceSignature_
         );
     }
 
@@ -301,8 +314,8 @@ contract PacksInitializable is
         uint256 tokenId_,
         bytes calldata digestSignature_,
         bytes calldata orderSignature_,
-        FulfillmentOption receiverChoice_,
-        bytes calldata receiverSignature_
+        FulfillmentOption choice_,
+        bytes calldata choiceSignature_
     ) internal nonReentrant {
         // Basic validation of tx
         if (msg.value > 0) _depositTreasury(msg.value);
@@ -345,9 +358,9 @@ contract PacksInitializable is
         orderHash[commitId_] = _orderHash;
 
         // 5. Check the fulfillment option
-        bytes32 receiverChoiceHash = hashReceiverChoice(digest, receiverChoice_);
-        address receiver = _verifyReceiverChoice(receiverChoiceHash, receiverSignature_);
-        if (receiver != commitData.receiver) revert InvalidReceiver();
+        bytes32 choiceHash = hashChoice(digest, choice_);
+        address choiceSigner = _verifyChoice(choiceHash, choiceSignature_);
+        if (choiceSigner != commitData.receiver && choiceSigner != commitData.cosigner) revert InvalidChoiceSigner();
 
         // Mark the commit as fulfilled
         isFulfilled[commitId_] = true;
@@ -358,7 +371,7 @@ contract PacksInitializable is
         commitBalance -= commitData.packPrice;
 
         // Handle user choice and fulfil order or payout
-        if (receiverChoice_ == FulfillmentOption.NFT) {
+        if (choice_ == FulfillmentOption.NFT) {
             // execute the market data to transfer the nft
             bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
             if (success) {
@@ -376,7 +389,7 @@ contract PacksInitializable is
                     tokenId_,
                     orderAmount_,
                     commitData.receiver,
-                    receiverChoice_,
+                    choice_,
                     digest
                 );
             } else {
@@ -399,7 +412,7 @@ contract PacksInitializable is
                     0,
                     0,
                     commitData.receiver,
-                    receiverChoice_,
+                    choice_,
                     digest
                 );
             }
@@ -426,7 +439,7 @@ contract PacksInitializable is
                 0,
                 0,
                 commitData.receiver,
-                receiverChoice_,
+                choice_,
                 digest
             );
         }
@@ -442,8 +455,8 @@ contract PacksInitializable is
     /// @param tokenId_ ID of the token if it's an NFT
     /// @param digestSignature_ Signature used for random number generation
     /// @param orderSignature_ Signature used for commit data
-    /// @param receiverChoice_ Choice made by the receiver
-    /// @param receiverSignature_ Signature used for receiver's choice
+    /// @param choice_ Choice made by the receiver
+    /// @param choiceSignature_ Signature used for receiver's choice
     /// @dev Emits a Fulfillment event on success
     function fulfillByDigest(
         bytes32 commitDigest_,
@@ -455,8 +468,8 @@ contract PacksInitializable is
         uint256 tokenId_,
         bytes calldata digestSignature_,
         bytes calldata orderSignature_,
-        FulfillmentOption receiverChoice_,
-        bytes calldata receiverSignature_
+        FulfillmentOption choice_,
+        bytes calldata choiceSignature_
     ) public payable whenNotPaused {
         return fulfill(
             commitIdByDigest[commitDigest_],
@@ -468,8 +481,8 @@ contract PacksInitializable is
             tokenId_,
             digestSignature_,
             orderSignature_,
-            receiverChoice_,
-            receiverSignature_
+            choice_,
+            choiceSignature_
         );
     }
 
