@@ -117,6 +117,7 @@ contract PacksInitializable is
     error BucketSelectionFailed();
     error InvalidRng();
     error InvalidFulfillmentOption();
+    error InvalidOrderHash();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
@@ -327,16 +328,13 @@ contract PacksInitializable is
         if (orderAmount_ < bucket.minValue) revert InvalidAmount();
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
-        // Note: If we have an existing order hash for the commit, load it from storage
+        // 3.5 Check for stored order hash and validate it matches the order data passed in
         // We do this to ensure only one NFT purchase order is ever tied to a commit
         // This prevents potentially presenting different NFT rewards for a commit with
         // the same RNG, and bucket index selection if the commit goes unfulfilled
-        // and the NFT in the orderData goes out of the bucket range
-        bytes32 _orderHash = orderHash[commitId_];
-        if (_orderHash == bytes32(0)) {
-            // If no order hash exists, hash the order data passed in
-            _orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
-        }
+        // and the NFT in the initial orderData goes out of the bucket range
+        bytes32 _orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
+        if (orderHash[commitId_] != bytes32(0) && _orderHash != orderHash[commitId_]) revert InvalidOrderHash();
 
         // 4. Check the cosigner signed the order hash
         address orderCosigner = _verifyOrderHash(_orderHash, orderSignature_);
