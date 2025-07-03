@@ -207,7 +207,7 @@ contract PacksInitializable is
         // Validate bucket's are in ascending value range and cumulative odds order
         uint256 cumulativeOdds = 0;
         for (uint256 i = 0; i < buckets_.length; i++) {
-            if (buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
+            if (i < buckets_.length - 1 && buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
             if (buckets_[i].oddsBps == 0) revert InvalidBuckets();
             if (buckets_[i].oddsBps > 10000) revert InvalidBuckets();
 
