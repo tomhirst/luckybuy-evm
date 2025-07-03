@@ -309,8 +309,8 @@ contract TestLuckyBuyCommit is Test {
         assertEq(storedAmount, amount, "Amount should match");
         assertEq(storedReward, reward, "Reward should match");
 
-        // Flat Fee goes straight to treasury, lb has not been funded yet
-        assertEq(luckyBuy.treasuryBalance(), flatFeeAmount);
+        // Flat Fee goes straight to fee receiver
+        assertEq(admin.balance, 100 ether + flatFeeAmount);
         vm.stopPrank();
     }
 
@@ -2057,6 +2057,63 @@ contract TestLuckyBuyCommit is Test {
         vm.expectRevert(TokenRescuer.TokenRescuerArrayLengthMismatch.selector);
         luckyBuy.rescueERC1155Batch(tokens, tos, tokenIds, amounts);
         vm.stopPrank();
+    }
+
+    function testFulfillWithTopOff() public {
+        bytes32 correctOrderHash = luckyBuy.hashOrder(
+            marketplace,
+            reward,
+            orderData,
+            orderToken,
+            orderTokenId
+        );
+        
+        vm.startPrank(user);
+        vm.deal(user, amount);
+        uint256 commitId = luckyBuy.commit{value: amount}(
+            receiver,
+            cosigner,
+            seed,
+            correctOrderHash,
+            reward
+        );
+        vm.stopPrank();
+
+        // Empty the treasury so there's not enough to cover the reward
+        vm.startPrank(admin);
+        uint256 treasuryBalance = luckyBuy.treasuryBalance();
+        if (treasuryBalance > 0) {
+            luckyBuy.withdraw(treasuryBalance);
+        }
+        vm.stopPrank();
+
+        bytes memory signature = signCommit(
+            commitId,
+            receiver,
+            seed,
+            0,
+            correctOrderHash,
+            amount,
+            reward
+        );
+
+        uint256 topOffAmount = reward - amount;
+        vm.deal(user, topOffAmount);
+        vm.startPrank(user);
+        
+        luckyBuy.fulfill{value: topOffAmount}(
+            commitId,
+            marketplace,
+            orderData,
+            reward,
+            orderToken,
+            orderTokenId,
+            signature
+        );
+        
+        vm.stopPrank();
+
+        assertTrue(luckyBuy.isFulfilled(commitId));
     }
 
     receive() external payable {}

@@ -242,7 +242,12 @@ contract LuckyBuyInitializable is
         _validateCommit(receiver_, cosigner_, reward_, commitAmount);
 
         // We collect the flat fee regardless of the amount. It is not returned to the user, ever.
-        treasuryBalance += flatFee;
+        if (flatFee > 0 && feeReceiver != address(0)) {
+            (bool success, ) = feeReceiver.call{value: flatFee}("");
+            if (!success) revert TransferFailed();
+        } else {
+            treasuryBalance += flatFee;
+        }
 
         // The fee is the amount without the flat fee minus the amount without the protocol fee
         uint256 protocolFee = amountWithoutFlatFee - commitAmount;
@@ -432,6 +437,9 @@ contract LuckyBuyInitializable is
 
         treasuryBalance += protocolFeesPaid;
         protocolBalance -= protocolFeesPaid;
+
+        // Check if we have enough balance after collecting all funds
+        if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
 
         // calculate the odds in base points
         uint256 odds = _calculateOdds(commitData.amount, commitData.reward);
@@ -958,7 +966,6 @@ contract LuckyBuyInitializable is
         uint256 tokenId_,
         bytes calldata signature_
     ) internal view returns (CommitData memory, bytes32) {
-        if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
         if (commitId_ >= luckyBuys.length) revert InvalidCommitId();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isExpired[commitId_]) revert CommitIsExpired();
