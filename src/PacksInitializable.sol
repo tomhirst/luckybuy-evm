@@ -40,17 +40,14 @@ contract PacksInitializable is
     mapping(uint256 commitId => bytes32 orderHash) public orderHash;
 
     uint256 public payoutBps; // When user selects payout as reward
-    uint256 public minReward; // Min reward for a commit (whether it's NFT or payout)
-    uint256 public maxReward; // Max reward for a commit (whether it's NFT or payout)
-    uint256 public minPackPrice; // Min pack price for a commit
-    uint256 public maxPackPrice; // Max pack price for a commit
+    uint256 public minReward; // Min ETH reward for a commit (whether it's NFT or payout)
+    uint256 public maxReward; // Max ETH reward for a commit (whether it's NFT or payout)
+    uint256 public minPackPrice; // Min ETH pack price for a commit
+    uint256 public maxPackPrice; // Max ETH pack price for a commit
 
     // Storage gap for future upgrades
     uint256[50] private __gap;
 
-    // bucketsHash is BucketData[] hashed
-    // digest is CommitData hashed
-    // bucketsSignature is the bucketsHash signed by the cosigner to authenticate the buckets used in the pack
     event Commit(
         address indexed sender,
         uint256 indexed commitId,
@@ -278,10 +275,10 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata commitSignature_, // cosigner signed hashCommit(commitData)
-        bytes calldata orderSignature_, // cosigner signed hashOrder(marketplace, orderAmount, orderData, token, tokenId)
+        bytes calldata commitSignature_,
+        bytes calldata orderSignature_,
         FulfillmentOption choice_,
-        bytes calldata choiceSignature_ // receiver signed choice (only for NFT choice)
+        bytes calldata choiceSignature_
     ) public payable whenNotPaused {
         _fulfill(
             commitId_,
