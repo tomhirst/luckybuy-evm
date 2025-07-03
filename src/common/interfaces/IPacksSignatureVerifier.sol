@@ -26,10 +26,18 @@ interface IPacksSignatureVerifier {
 
     }
 
-    function hash(IPacksSignatureVerifier.CommitData memory commit) external view returns (bytes32);
+    function hashCommit(CommitData memory commit) external view returns (bytes32);
 
-    function verify(IPacksSignatureVerifier.CommitData memory commit, bytes memory signature)
+    function hashPack(uint256 packPrice, BucketData[] memory buckets) external pure returns (bytes32);
+
+    function hashOrder(address to, uint256 value, bytes memory data, address tokenAddress, uint256 tokenId)
         external
-        view
-        returns (address);
+        pure
+        returns (bytes32);
+
+    function hashChoice(bytes32 digest, FulfillmentOption choice) external pure returns (bytes32);
+
+    function verifyCommit(CommitData memory commit, bytes memory signature) external view returns (address);
+
+    function verifyHash(bytes32 hash, bytes memory signature) external pure returns (address);
 }

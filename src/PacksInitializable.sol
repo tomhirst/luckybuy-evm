@@ -225,7 +225,7 @@ contract PacksInitializable is
         // Verify pack hash signature
         // Note: Ensures pack data was approved by the cosigner
         bytes32 packHash = hashPack(amount, buckets_);
-        address cosigner = _verifyPackHash(packHash, signature_);
+        address cosigner = verifyHash(packHash, signature_);
         if (cosigner != cosigner_) revert InvalidCosigner();
         if (!isCosigner[cosigner]) revert InvalidCosigner();
 
@@ -249,7 +249,7 @@ contract PacksInitializable is
         packs.push(commitData);
         commitExpiresAt[commitId] = block.timestamp + commitExpireTime;
 
-        bytes32 digest = hash(commitData);
+        bytes32 digest = hashCommit(commitData);
         commitIdByDigest[digest] = commitId;
 
         emit Commit(msg.sender, commitId, receiver_, cosigner_, seed_, userCounter, amount, packHash, digest);
@@ -265,7 +265,7 @@ contract PacksInitializable is
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
-    /// @param digestSignature_ Signature used for random number generation (and to validate orderData)
+    /// @param commitSignature_ Signature used for random number generation (and to validate orderData)
     /// @param orderSignature_ Signature used for orderData (and to validate orderData)
     /// @param choice_ Choice made by the receiver (Payout = 0, NFT = 1)
     /// @param choiceSignature_ Signature used for receiver's choice (only required for NFT choice)
@@ -278,8 +278,8 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata digestSignature_, // cosigner signed hash(commitData)
-        bytes calldata orderSignature_, // cosigner signed hash(orderData(marketplace, orderAmount, orderData, token, tokenId))
+        bytes calldata commitSignature_, // cosigner signed hashCommit(commitData)
+        bytes calldata orderSignature_, // cosigner signed hashOrder(marketplace, orderAmount, orderData, token, tokenId)
         FulfillmentOption choice_,
         bytes calldata choiceSignature_ // receiver signed choice (only for NFT choice)
     ) public payable whenNotPaused {
@@ -291,7 +291,7 @@ contract PacksInitializable is
             orderAmount_,
             token_,
             tokenId_,
-            digestSignature_,
+            commitSignature_,
             orderSignature_,
             choice_,
             choiceSignature_
@@ -306,7 +306,7 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata digestSignature_,
+        bytes calldata commitSignature_,
         bytes calldata orderSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
@@ -319,15 +319,14 @@ contract PacksInitializable is
         if (commitId_ >= packs.length) revert InvalidCommitId();
 
         // 1. Validate the rng
-        uint256 rng = PRNG.rng(digestSignature_);
+        uint256 rng = PRNG.rng(commitSignature_);
         if (rng != expectedRng_) revert InvalidRng();
 
-        // 2. Check the cosigner signed the commit digest
+        // 2. Check the cosigner signed the commit
         CommitData memory commitData = packs[commitId_];
-        bytes32 digest = hash(commitData);
-        address digestCosigner = _verifyDigest(digest, digestSignature_);
-        if (digestCosigner != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[digestCosigner]) revert InvalidCosigner();
+        address commitCosigner = verifyCommit(commitData, commitSignature_);
+        if (commitCosigner != commitData.cosigner) revert InvalidCosigner();
+        if (!isCosigner[commitCosigner]) revert InvalidCosigner();
 
         // 3. Determine bucket and validate orderAmount is within bucket range
         uint256 bucketIndex = _getBucketIndex(rng, commitData.buckets);
@@ -344,7 +343,7 @@ contract PacksInitializable is
         if (orderHash[commitId_] != bytes32(0) && _orderHash != orderHash[commitId_]) revert InvalidOrderHash();
 
         // 4. Check the cosigner signed the order hash
-        address orderCosigner = _verifyOrderHash(_orderHash, orderSignature_);
+        address orderCosigner = verifyHash(_orderHash, orderSignature_);
         if (orderCosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[orderCosigner]) revert InvalidCosigner();
 
@@ -352,8 +351,9 @@ contract PacksInitializable is
         orderHash[commitId_] = _orderHash;
 
         // 5. Check the fulfillment option
+        bytes32 digest = hashCommit(commitData);
         bytes32 choiceHash = hashChoice(digest, choice_);
-        address choiceSigner = _verifyChoice(choiceHash, choiceSignature_);
+        address choiceSigner = verifyHash(choiceHash, choiceSignature_);
         if (choiceSigner != commitData.receiver && choiceSigner != commitData.cosigner) revert InvalidChoiceSigner();
 
         // Mark the commit as fulfilled
@@ -447,7 +447,7 @@ contract PacksInitializable is
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
-    /// @param digestSignature_ Signature used for random number generation
+    /// @param commitSignature_ Signature used for random number generation
     /// @param orderSignature_ Signature used for commit data
     /// @param choice_ Choice made by the receiver
     /// @param choiceSignature_ Signature used for receiver's choice
@@ -460,7 +460,7 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
-        bytes calldata digestSignature_,
+        bytes calldata commitSignature_,
         bytes calldata orderSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
@@ -473,7 +473,7 @@ contract PacksInitializable is
             orderAmount_,
             token_,
             tokenId_,
-            digestSignature_,
+            commitSignature_,
             orderSignature_,
             choice_,
             choiceSignature_
@@ -533,10 +533,10 @@ contract PacksInitializable is
         (bool success,) = payable(commitData.receiver).call{value: transferAmount}("");
         if (!success) {
             treasuryBalance += transferAmount;
-            emit TransferFailure(commitId_, commitData.receiver, transferAmount, hash(commitData));
+            emit TransferFailure(commitId_, commitData.receiver, transferAmount, hashCommit(commitData));
         }
 
-        emit CommitExpired(commitId_, hash(commitData));
+        emit CommitExpired(commitId_, hashCommit(commitData));
     }
 
     // ############################################################
