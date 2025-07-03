@@ -164,7 +164,7 @@ contract PacksInitializable is
     }
 
     /// @dev Overriden to prevent unauthorized upgrades.
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function _authorizeUpgrade(address newImplementation) internal view override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newImplementation == address(0)) revert NewImplementationCannotBeZero();
     }
 
@@ -180,7 +180,6 @@ contract PacksInitializable is
         address receiver_,
         address cosigner_,
         uint256 seed_,
-        bytes32 packHash_,
         BucketData[] memory buckets_,
         bytes memory signature_
     ) public payable whenNotPaused returns (uint256) {
@@ -223,16 +222,11 @@ contract PacksInitializable is
         // Final cumulative odds check (this is already correct)
         if (cumulativeOdds != 10000) revert InvalidBuckets();
 
-        // Validate pack hash
-        bytes32 packHash = hashPack(amount, buckets_);
-        // TODO: Potentially superfluous as caller controls all inputs
-        if (packHash_ != packHash) revert InvalidPackHash();
-
         // Verify pack hash signature
+        // Note: Ensures pack data was approved by the cosigner
+        bytes32 packHash = hashPack(amount, buckets_);
         address cosigner = _verifyPackHash(packHash, signature_);
-        // TODO: Potentially superfluous as caller controls all inputs
         if (cosigner != cosigner_) revert InvalidCosigner();
-        // Ensure pack data was signed by approved cosigner
         if (!isCosigner[cosigner]) revert InvalidCosigner();
 
         uint256 commitId = packs.length;
