@@ -117,9 +117,9 @@ contract PacksInitializable is
     error InvalidFulfillmentOption();
     error InvalidOrderHash();
 
-    modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
-        if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
-            revert InvalidCommitOwner();
+    modifier onlyCosigner(uint256 commitId_) {
+        if (packs[commitId_].cosigner != msg.sender) {
+            revert InvalidCosigner();
         }
         _;
     }
@@ -506,11 +506,11 @@ contract PacksInitializable is
         emit Withdrawal(msg.sender, currentBalance, feeReceiver);
     }
 
-    /// @notice Allows the commit owner to expire a commit in the event that the commit is not or cannot be fulfilled
+    /// @notice Allows the cosigner to expire a commit in the event that the commit is not or cannot be fulfilled
     /// @param commitId_ ID of the commit to expire
-    /// @dev Only callable by the commit owner
+    /// @dev Only callable by the cosigner
     /// @dev Emits a CommitExpired event
-    function expire(uint256 commitId_) external onlyCommitOwnerOrCosigner(commitId_) nonReentrant {
+    function expire(uint256 commitId_) external onlyCosigner(commitId_) nonReentrant {
         if (commitId_ >= packs.length) revert InvalidCommitId();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isExpired[commitId_]) revert CommitIsExpired();
