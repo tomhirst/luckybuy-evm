@@ -75,8 +75,6 @@ contract MockPacksInitializable is PacksInitializable {
     function setIsExpired(uint256 commitId_, bool isExpired_) public {
         isExpired[commitId_] = isExpired_;
     }
-
-    // Removed setOrderHash as orderHash is not stored in the contract
 }
 
 contract TestPacksInitializable is Test {
@@ -95,6 +93,7 @@ contract TestPacksInitializable is Test {
 
     // Test bucket data
     IPacksSignatureVerifier.BucketData[] buckets;
+    IPacksSignatureVerifier.BucketData[] bucketsMulti;
 
     bytes32 constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 constant OPS_ROLE = keccak256("OPS_ROLE");
@@ -163,10 +162,27 @@ contract TestPacksInitializable is Test {
             maxValue: 1 ether
         });
 
+        bucketsMulti = new IPacksSignatureVerifier.BucketData[](3);
+        bucketsMulti[0] = IPacksSignatureVerifier.BucketData({
+            oddsBps: 3000, // 30% chance (individual probability)
+            minValue: 0.01 ether,
+            maxValue: 0.05 ether
+        });
+        bucketsMulti[1] = IPacksSignatureVerifier.BucketData({
+            oddsBps: 5000, // 50% chance (individual probability)
+            minValue: 0.06 ether,
+            maxValue: 0.15 ether
+        });
+        bucketsMulti[2] = IPacksSignatureVerifier.BucketData({
+            oddsBps: 2000, // 20% chance (individual probability)
+            minValue: 0.16 ether,
+            maxValue: 0.25 ether
+        });
+
         vm.stopPrank();
     }
 
-    function testInitialize() public {
+    function testInitialize() public view {
         assertTrue(packs.hasRole(DEFAULT_ADMIN_ROLE, admin));
         assertTrue(packs.hasRole(OPS_ROLE, admin));
 
@@ -810,6 +826,7 @@ contract TestPacksInitializable is Test {
     // Helper functions for signing
     function signPack(uint256 packPrice_, IPacksSignatureVerifier.BucketData[] memory buckets_)
         internal
+        view
         returns (bytes memory)
     {
         return signPack(packPrice_, buckets_, cosigner);
@@ -817,6 +834,7 @@ contract TestPacksInitializable is Test {
 
     function signPack(uint256 packPrice_, IPacksSignatureVerifier.BucketData[] memory buckets_, address signer_)
         internal
+        view
         returns (bytes memory)
     {
         bytes32 packHash = packs.hashPack(packPrice_, buckets_);
@@ -845,7 +863,7 @@ contract TestPacksInitializable is Test {
         uint256 counter_,
         uint256 packPrice_,
         IPacksSignatureVerifier.BucketData[] memory buckets_
-    ) internal returns (bytes memory) {
+    ) internal view returns (bytes memory) {
         return signCommit(commitId_, receiver_, seed_, counter_, packPrice_, buckets_, cosigner);
     }
 
@@ -857,7 +875,7 @@ contract TestPacksInitializable is Test {
         uint256 packPrice_,
         IPacksSignatureVerifier.BucketData[] memory buckets_,
         address signer_
-    ) internal returns (bytes memory) {
+    ) internal view returns (bytes memory) {
         IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
             id: commitId_,
             receiver: receiver_,
@@ -891,6 +909,7 @@ contract TestPacksInitializable is Test {
 
     function signOrder(address to_, uint256 value_, bytes memory data_, address token_, uint256 tokenId_)
         internal
+        view
         returns (bytes memory)
     {
         return signOrder(to_, value_, data_, token_, tokenId_, cosigner);
@@ -903,7 +922,7 @@ contract TestPacksInitializable is Test {
         address token_,
         uint256 tokenId_,
         address signer_
-    ) internal returns (bytes memory) {
+    ) internal view returns (bytes memory) {
         bytes32 orderHash = packs.hashOrder(to_, value_, data_, token_, tokenId_);
 
         // Find the private key for the signer
@@ -931,7 +950,7 @@ contract TestPacksInitializable is Test {
         uint256 packPrice_,
         IPacksSignatureVerifier.BucketData[] memory buckets_,
         IPacksSignatureVerifier.FulfillmentOption choice_
-    ) internal returns (bytes memory) {
+    ) internal view returns (bytes memory) {
         return signChoice(commitId_, receiver_, seed_, counter_, packPrice_, buckets_, choice_, cosigner);
     }
 
@@ -944,7 +963,7 @@ contract TestPacksInitializable is Test {
         IPacksSignatureVerifier.BucketData[] memory buckets_,
         IPacksSignatureVerifier.FulfillmentOption choice_,
         address signer_
-    ) internal returns (bytes memory) {
+    ) internal view returns (bytes memory) {
         IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
             id: commitId_,
             receiver: receiver_,
@@ -1024,6 +1043,71 @@ contract TestPacksInitializable is Test {
         // Verify bucket was selected
         assertTrue(packs.isBucketSelected(commitId));
         assertEq(packs.bucketIndex(commitId), 0); // Should select bucket 0 with 100% odds
+    }
+
+    function testSelectBucketIndexSuccessMulti() public {
+        // Create commit
+        vm.startPrank(user);
+        vm.deal(user, packPrice);
+        bytes memory packSignature = signPack(packPrice, bucketsMulti);
+        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, bucketsMulti, packSignature);
+        vm.stopPrank();
+
+        // Select bucket index
+        vm.prank(cosigner);
+        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, bucketsMulti);
+
+        // Calculate the actual digest that will be emitted
+        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+            id: commitId,
+            receiver: receiver,
+            cosigner: cosigner,
+            seed: seed,
+            counter: 0,
+            packPrice: packPrice,
+            payoutBps: packs.payoutBps(),
+            buckets: bucketsMulti,
+            packHash: packs.hashPack(packPrice, bucketsMulti)
+        });
+        bytes32 expectedDigest = packs.hashCommit(commitData);
+
+        // Capture the RNG value and bucket selection
+        uint256 expectedRng = prng.rng(commitSignature);
+
+        // Calculate expected bucket based on RNG and cumulative odds
+        uint256 expectedBucket = 0;
+        uint256 cumulativeOdds = 0;
+        for (uint256 i = 0; i < bucketsMulti.length; i++) {
+            cumulativeOdds += bucketsMulti[i].oddsBps;
+            if (expectedRng < cumulativeOdds) {
+                expectedBucket = i;
+                break;
+            }
+        }
+
+        vm.expectEmit(true, true, true, false);
+        emit BucketIndexSelected(
+            address(this), // msg.sender is the test contract
+            commitId,
+            expectedRng, // Actual RNG value
+            bucketsMulti[expectedBucket].oddsBps, // Selected bucket odds
+            expectedBucket, // Expected bucket index
+            expectedDigest
+        );
+
+        packs.selectBucketIndex(commitId, commitSignature);
+
+        // Verify bucket was selected correctly
+        assertTrue(packs.isBucketSelected(commitId));
+        assertEq(packs.bucketIndex(commitId), expectedBucket, "Bucket index should match RNG-based selection");
+
+        // Verify the selected bucket's odds are correct
+        assertEq(
+            packs.bucketIndex(commitId) < bucketsMulti.length, true, "Selected bucket should be within valid range"
+        );
+
+        // Verify the RNG value is within expected range (0-10000)
+        assertTrue(expectedRng <= 10000, "RNG should be within 0-10000 range");
     }
 
     function testSelectBucketIndexByDigest() public {
@@ -1108,6 +1192,70 @@ contract TestPacksInitializable is Test {
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
         vm.expectRevert();
         packs.selectBucketIndex(commitId, commitSignature);
+    }
+
+    function testSelectBucketIndexRNGDistribution() public {
+        // Test that RNG-based bucket selection follows expected statistical distribution
+        // Create multiple commits and track bucket selections to validate RNG behavior
+
+        uint256[3] memory bucketCounts;
+        uint256 numTests = 1000; // Number of commits to test
+
+        for (uint256 i = 0; i < numTests; i++) {
+            // Create commit with different seed for each test
+            vm.startPrank(user);
+            vm.deal(user, packPrice);
+            bytes memory packSignature = signPack(packPrice, bucketsMulti);
+            uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed + i, bucketsMulti, packSignature);
+            vm.stopPrank();
+
+            // Select bucket index
+            vm.prank(cosigner);
+            bytes memory commitSignature = signCommit(commitId, receiver, seed + i, i, packPrice, bucketsMulti);
+
+            // Get expected RNG and bucket
+            uint256 expectedRng = prng.rng(commitSignature);
+            uint256 expectedBucket = 0;
+            uint256 cumulativeOdds = 0;
+            for (uint256 j = 0; j < bucketsMulti.length; j++) {
+                cumulativeOdds += bucketsMulti[j].oddsBps;
+                if (expectedRng < cumulativeOdds) {
+                    expectedBucket = j;
+                    break;
+                }
+            }
+
+            packs.selectBucketIndex(commitId, commitSignature);
+
+            // Verify bucket selection matches RNG-based expectation
+            assertEq(packs.bucketIndex(commitId), expectedBucket, "Bucket selection should match RNG calculation");
+
+            // Track bucket selections
+            bucketCounts[expectedBucket]++;
+        }
+
+        // Basic statistical validation - all buckets should be selected at least once
+        assertTrue(bucketCounts[0] > 0, "Bucket 0 should be selected at least once");
+        assertTrue(bucketCounts[1] > 0, "Bucket 1 should be selected at least once");
+        assertTrue(bucketCounts[2] > 0, "Bucket 2 should be selected at least once");
+
+        // Verify total selections equals number of tests
+        assertEq(
+            bucketCounts[0] + bucketCounts[1] + bucketCounts[2],
+            numTests,
+            "Total selections should equal number of tests"
+        );
+
+        // Verify bucket 1 (50% odds) is selected more frequently than others
+        // This is a basic check that the higher odds bucket gets selected more often
+        assertTrue(
+            bucketCounts[1] >= bucketCounts[0],
+            "Bucket 1 (50% odds) should be selected at least as often as bucket 0 (30% odds)"
+        );
+        assertTrue(
+            bucketCounts[1] >= bucketCounts[2],
+            "Bucket 1 (50% odds) should be selected at least as often as bucket 2 (20% odds)"
+        );
     }
 
     // ========================================

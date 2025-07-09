@@ -202,20 +202,19 @@ contract PacksInitializable is
             if (buckets_[i].maxValue > maxReward) revert InvalidReward();
         }
 
-        // Validate bucket's are in ascending value range and cumulative odds order
-        uint256 cumulativeOdds = 0;
+        // Validate bucket's are in ascending value range
+        uint256 totalOdds = 0;
         for (uint256 i = 0; i < buckets_.length; i++) {
             if (i < buckets_.length - 1 && buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
             if (buckets_[i].oddsBps == 0) revert InvalidBuckets();
             if (buckets_[i].oddsBps > 10000) revert InvalidBuckets();
 
-            // Check that oddsBps represents cumulative odds (each bucket should have higher cumulative odds)
-            cumulativeOdds += buckets_[i].oddsBps;
-            if (i < buckets_.length - 1 && cumulativeOdds >= buckets_[i + 1].oddsBps) revert InvalidBuckets();
+            // Sum individual probabilities
+            totalOdds += buckets_[i].oddsBps;
         }
 
-        // Final cumulative odds check
-        if (cumulativeOdds != 10000) revert InvalidBuckets();
+        // Final total odds check - must equal 10000 (100%)
+        if (totalOdds != 10000) revert InvalidBuckets();
 
         // Verify pack hash signature
         // Note: Ensures pack data was approved by an authorised cosigner
@@ -745,13 +744,11 @@ contract PacksInitializable is
 
     /// @notice Handles receiving ERC1155 tokens
     /// @dev Required for contract to receive ERC1155 tokens
-    function onERC1155Received(
-        address operator,
-        address from,
-        uint256 id,
-        uint256 value,
-        bytes calldata data
-    ) external pure returns (bytes4) {
+    function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes calldata data)
+        external
+        pure
+        returns (bytes4)
+    {
         return this.onERC1155Received.selector;
     }
 
