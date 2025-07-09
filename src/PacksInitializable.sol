@@ -743,6 +743,24 @@ contract PacksInitializable is
         _depositTreasury(msg.value);
     }
 
+    /// @notice Handles receiving ERC1155 tokens
+    /// @dev Required for contract to receive ERC1155 tokens
+    function onERC1155Received() external pure returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    /// @notice Handles receiving batch ERC1155 tokens
+    /// @dev Required for contract to receive batch ERC1155 tokens
+    function onERC1155BatchReceived() external pure returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    /// @notice Handles receiving ERC721 tokens
+    /// @dev Required for contract to receive ERC721 tokens via safeTransferFrom
+    function onERC721Received() external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
     /// @notice Fulfills an order with the specified parameters
     /// @dev Internal function called by fulfill()
     /// @param to Address to send the transaction to
