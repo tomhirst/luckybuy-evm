@@ -745,13 +745,25 @@ contract PacksInitializable is
 
     /// @notice Handles receiving ERC1155 tokens
     /// @dev Required for contract to receive ERC1155 tokens
-    function onERC1155Received() external pure returns (bytes4) {
+    function onERC1155Received(
+        address operator,
+        address from,
+        uint256 id,
+        uint256 value,
+        bytes calldata data
+    ) external pure returns (bytes4) {
         return this.onERC1155Received.selector;
     }
 
     /// @notice Handles receiving batch ERC1155 tokens
     /// @dev Required for contract to receive batch ERC1155 tokens
-    function onERC1155BatchReceived() external pure returns (bytes4) {
+    function onERC1155BatchReceived(
+        address operator,
+        address from,
+        uint256[] calldata ids,
+        uint256[] calldata values,
+        bytes calldata data
+    ) external pure returns (bytes4) {
         return this.onERC1155BatchReceived.selector;
     }
 
