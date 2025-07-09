@@ -60,7 +60,9 @@ contract PacksInitializable is
         bytes32 packHash,
         bytes32 digest
     );
-    event BucketIndexSelected(address indexed sender, uint256 indexed commitId, uint256 rng, uint256 odds, uint256 bucketIndex, bytes32 digest);
+    event BucketIndexSelected(
+        address indexed sender, uint256 indexed commitId, uint256 rng, uint256 odds, uint256 bucketIndex, bytes32 digest
+    );
     event Fulfillment(
         address indexed sender,
         uint256 indexed commitId,
@@ -114,10 +116,9 @@ contract PacksInitializable is
     error BucketIndexNotSelected();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
-        if (
-            packs[commitId_].receiver != msg.sender &&
-            packs[commitId_].cosigner != msg.sender
-        ) revert InvalidCommitOwner();
+        if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
+            revert InvalidCommitOwner();
+        }
         _;
     }
 
@@ -293,7 +294,14 @@ contract PacksInitializable is
         bucketIndex[commitId_] = _bucketIndex;
         isBucketSelected[commitId_] = true;
 
-        emit BucketIndexSelected(msg.sender, commitId_, rng, packs[commitId_].buckets[_bucketIndex].oddsBps, _bucketIndex, hashCommit(packs[commitId_]));
+        emit BucketIndexSelected(
+            msg.sender,
+            commitId_,
+            rng,
+            packs[commitId_].buckets[_bucketIndex].oddsBps,
+            _bucketIndex,
+            hashCommit(packs[commitId_])
+        );
     }
 
     /// @notice Selects a bucket index for a commit using the RNG
@@ -362,7 +370,7 @@ contract PacksInitializable is
         BucketData memory bucket = packs[commitId_].buckets[bucketIndex[commitId_]];
         if (orderAmount_ < bucket.minValue) revert InvalidAmount();
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
-        
+
         // Check the cosigner signed the order
         bytes32 _orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
         CommitData memory commitData = packs[commitId_];
@@ -528,7 +536,7 @@ contract PacksInitializable is
         if (block.timestamp < commitExpiresAt[commitId_]) {
             revert CommitNotExpired();
         }
-       
+
         isExpired[commitId_] = true;
 
         CommitData memory commitData = packs[commitId_];

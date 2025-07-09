@@ -22,8 +22,7 @@ interface IPacksSignatureVerifier {
 
     enum FulfillmentOption {
         Payout,
-        NFT 
-
+        NFT
     }
 
     function hashCommit(CommitData memory commit) external view returns (bytes32);
