@@ -257,8 +257,10 @@ contract PacksInitializable is
     /// @param buckets Array of bucket data
     /// @return bucketIndex_ Index of the selected bucket
     function _getBucketIndex(uint256 rng, BucketData[] memory buckets) internal pure returns (uint256 bucketIndex_) {
+        uint256 cumulativeOdds = 0;
         for (uint256 i = 0; i < buckets.length; i++) {
-            if (rng < buckets[i].oddsBps) {
+            cumulativeOdds += buckets[i].oddsBps;
+            if (rng < cumulativeOdds) {
                 return i;
             }
         }
