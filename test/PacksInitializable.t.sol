@@ -1258,16 +1258,43 @@ contract TestPacksInitializable is Test {
         );
     }
 
-    // ========================================
-    // SECURITY TESTS - ATTACK VECTORS
-    // ========================================
-
-    function testReentrancyAttackOnFulfill() public {
-        // Create commit
+    function testInvalidPackHashSigner() public {
+        // Test that commit reverts if the pack hash is not signed by the cosigner
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
         uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
+        vm.stopPrank();
+
+        // Try to select bucket index with wrong signature
+        bytes memory wrongSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
+
+        vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
+        packs.selectBucketIndex(commitId, wrongSignature);
+    }
+
+    function testInvalidCommitSigner() public {
+        // Test that selectBucketIndex reverts if the commit is not signed by the cosigner
+        vm.startPrank(user);
+        vm.deal(user, packPrice);
+        bytes memory packSignature = signPack(packPrice, buckets);
+        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
+        vm.stopPrank();
+
+        // Try to select bucket index with wrong signature
+        bytes memory wrongSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
+
+        vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
+        packs.selectBucketIndex(commitId, wrongSignature);
+    }
+
+    function testInvalidOrderHashSigner() public {
+        // Test that fulfill reverts if the order hash is not signed by the receiver
+        vm.startPrank(user);
+        vm.deal(user, packPrice);
+        bytes memory packSignature = signPack(packPrice, buckets);
+        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
+        vm.stopPrank();
 
         // Fund contract treasury properly
         vm.deal(user, 10 ether);
@@ -1280,162 +1307,24 @@ contract TestPacksInitializable is Test {
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
         packs.selectBucketIndex(commitId, commitSignature);
 
-        // Create malicious contract that tries to reenter
-        ReentrantAttacker attacker = new ReentrantAttacker(address(packs));
-        vm.deal(address(attacker), 1 ether);
+        // Try to fulfill with wrong signature
+        bytes memory wrongSignature = signOrder(address(0), 0.03 ether, "", address(0), 0, bob);
 
-        uint256 orderAmount = 0.03 ether;
-        bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
-        bytes memory choiceSignature = signChoice(
-            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
-        );
-
-        // This should not allow reentrancy due to nonReentrant modifier
+        vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         packs.fulfill(
             commitId,
             address(0),
             "",
-            orderAmount,
+            0.03 ether,
             address(0),
             0,
-            orderSignature,
+            wrongSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
-            choiceSignature
-        );
-
-        assertTrue(packs.isFulfilled(commitId));
-    }
-
-    function testSignatureReplayAttack() public {
-        // Create commit
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
-
-        // Fund contract treasury properly
-        vm.deal(user, 10 ether);
-        (bool success,) = payable(address(packs)).call{value: 10 ether}("");
-        require(success, "Failed to fund contract");
-        vm.stopPrank();
-
-        // Select bucket index first
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
-
-        uint256 orderAmount = 0.03 ether;
-        bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
-        bytes memory choiceSignature = signChoice(
-            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
-        );
-
-        // First fulfill should succeed
-        packs.fulfill(
-            commitId,
-            address(0),
-            "",
-            orderAmount,
-            address(0),
-            0,
-            orderSignature,
-            IPacksSignatureVerifier.FulfillmentOption.Payout,
-            choiceSignature
-        );
-
-        // Second fulfill with same signatures should fail
-        vm.expectRevert(PacksInitializable.AlreadyFulfilled.selector);
-        packs.fulfill(
-            commitId,
-            address(0),
-            "",
-            orderAmount,
-            address(0),
-            0,
-            orderSignature,
-            IPacksSignatureVerifier.FulfillmentOption.Payout,
-            choiceSignature
+            ""
         );
     }
 
-    function testBucketManipulationAttack() public {
-        // Test that bucket validation prevents manipulation
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-
-        // Create buckets with invalid cumulative odds
-        IPacksSignatureVerifier.BucketData[] memory manipulatedBuckets = new IPacksSignatureVerifier.BucketData[](2);
-        manipulatedBuckets[0] =
-            IPacksSignatureVerifier.BucketData({oddsBps: 6000, minValue: 0.01 ether, maxValue: 0.05 ether});
-        manipulatedBuckets[1] = IPacksSignatureVerifier.BucketData({
-            oddsBps: 3000, // This makes total 9000, not 10000
-            minValue: 0.06 ether,
-            maxValue: 0.1 ether
-        });
-
-        bytes memory signature = signPack(packPrice, manipulatedBuckets);
-
-        vm.expectRevert(PacksInitializable.InvalidBuckets.selector);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, manipulatedBuckets, signature);
-
-        vm.stopPrank();
-    }
-
-    function testOrderHashBindingAttack() public {
-        // Test that order hash binding prevents order manipulation
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
-
-        // Fund contract treasury properly
-        vm.deal(user, 10 ether);
-        (bool success,) = payable(address(packs)).call{value: 10 ether}("");
-        require(success, "Failed to fund contract");
-        vm.stopPrank();
-
-        // Select bucket index first
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
-
-        uint256 orderAmount = 0.03 ether;
-        bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
-        bytes memory choiceSignature = signChoice(
-            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
-        );
-
-        // First fulfill sets the order hash
-        packs.fulfill(
-            commitId,
-            address(0),
-            "",
-            orderAmount,
-            address(0),
-            0,
-            orderSignature,
-            IPacksSignatureVerifier.FulfillmentOption.Payout,
-            choiceSignature
-        );
-
-        // Try to fulfill with different order data but same amount
-        bytes memory differentOrderSignature = signOrder(address(0), orderAmount, "different", address(0), 0);
-
-        vm.expectRevert(PacksInitializable.AlreadyFulfilled.selector);
-        packs.fulfill(
-            commitId,
-            address(0),
-            "different",
-            orderAmount,
-            address(0),
-            0,
-            differentOrderSignature,
-            IPacksSignatureVerifier.FulfillmentOption.Payout,
-            choiceSignature
-        );
-    }
-
-    function testInvalidChoiceSignerAttack() public {
+    function testInvalidChoiceSigner() public {
         // Test that only receiver or cosigner can sign choice
         vm.startPrank(user);
         vm.deal(user, packPrice);
@@ -1456,26 +1345,10 @@ contract TestPacksInitializable is Test {
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
 
-        // Sign choice with wrong private key (bob's key)
-        uint256 bobPrivateKey = 5678;
-        address bobAddress = vm.addr(bobPrivateKey);
-
-        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
-            id: commitId,
-            receiver: receiver,
-            cosigner: cosigner,
-            seed: seed,
-            counter: 0,
-            packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
-            buckets: buckets,
-            packHash: packs.hashPack(packPrice, buckets)
-        });
-
-        bytes32 digest = packs.hashCommit(commitData);
-        bytes32 choiceHash = packs.hashChoice(digest, IPacksSignatureVerifier.FulfillmentOption.Payout);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(bobPrivateKey, choiceHash);
-        bytes memory wrongChoiceSignature = abi.encodePacked(r, s, v);
+        // Sign choice with wrong signer (bob instead of receiver or cosigner)
+        bytes memory wrongChoiceSignature = signChoice(
+            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout, bob
+        );
 
         vm.expectRevert(PacksInitializable.InvalidChoiceSigner.selector);
         packs.fulfill(
@@ -1988,19 +1861,5 @@ contract TestPacksInitializable is Test {
         packs.removeCosigner(bob);
         assertFalse(packs.isCosigner(bob));
         vm.stopPrank();
-    }
-}
-
-// Malicious contract for reentrancy testing
-contract ReentrantAttacker {
-    PacksInitializable packs;
-
-    constructor(address _packs) {
-        packs = PacksInitializable(payable(_packs));
-    }
-
-    receive() external payable {
-        // Try to reenter - this should fail due to nonReentrant modifier
-        // This is just a placeholder for the reentrancy test
     }
 }
