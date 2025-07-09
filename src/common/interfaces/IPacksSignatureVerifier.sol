@@ -4,8 +4,8 @@ pragma solidity 0.8.28;
 interface IPacksSignatureVerifier {
     struct BucketData {
         uint256 oddsBps;
-        uint256 minValue; // In ether
-        uint256 maxValue; // In ether
+        uint256 minValue;
+        uint256 maxValue;
     }
 
     struct CommitData {
@@ -14,15 +14,15 @@ interface IPacksSignatureVerifier {
         address cosigner;
         uint256 seed;
         uint256 counter;
-        uint256 packPrice; // In ether
-        uint256 payoutBps; // We should track this at moment in time from contract state in case we change it
+        uint256 packPrice;
+        uint256 payoutBps;
         BucketData[] buckets;
         bytes32 packHash;
     }
 
     enum FulfillmentOption {
-        Payout, // Default choice - no signature required
-        NFT // Requires receiver signature
+        Payout,
+        NFT 
 
     }
 
