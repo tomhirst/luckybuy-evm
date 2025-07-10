@@ -336,9 +336,11 @@ contract PacksInitializable is
         uint256 rng = PRNG.rng(commitSignature_);
         if (rng != expectedRng_) revert InvalidRng();
 
+        bytes32 digest = hashCommit(commitData);
+
         // Check the cosigner signed the order
-        bytes32 _orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
-        address orderCosigner = verifyHash(_orderHash, orderSignature_);
+        bytes32 orderHash = hashOrder(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_);
+        address orderCosigner = verifyHash(orderHash, orderSignature_);
         if (orderCosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[orderCosigner]) revert InvalidCosigner();
 
@@ -349,7 +351,6 @@ contract PacksInitializable is
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
         // Check the fulfillment option
-        bytes32 digest = hashCommit(commitData);
         bytes32 choiceHash = hashChoice(digest, choice_);
         address choiceSigner = verifyHash(choiceHash, choiceSignature_);
         if (choiceSigner != commitData.receiver && choiceSigner != commitData.cosigner) revert InvalidChoiceSigner();

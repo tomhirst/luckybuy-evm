@@ -53,18 +53,19 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     }
 
     /// @notice Hashes an order
+    /// @param digest The commit digest
     /// @param to Receiver of the order
     /// @param value Amount of ether to send
     /// @param data Data to send
     /// @param tokenAddress Token address
     /// @param tokenId Token id
     /// @return Hash of the order
-    function hashOrder(address to, uint256 value, bytes memory data, address tokenAddress, uint256 tokenId)
+    function hashOrder(bytes32 digest, address to, uint256 value, bytes memory data, address tokenAddress, uint256 tokenId)
         public
         pure
         returns (bytes32)
     {
-        return keccak256(abi.encode(to, value, data, tokenAddress, tokenId));
+        return keccak256(abi.encode(digest, to, value, data, tokenAddress, tokenId));
     }
 
     /// @notice Hashes the receiver choice data for signature validation
