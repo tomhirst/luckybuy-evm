@@ -1250,24 +1250,24 @@ contract TestPacksInitializable is Test {
 
             // Calculate expected RNG and bucket selection
             bytes memory commitSignature = signCommit(commitId, receiver, seed + i, i, packPrice, bucketsMulti);
-            uint256 rng = prng.rng(commitSignature);
+            uint256 expectedRng = prng.rng(commitSignature);
 
             // Calculate which bucket should be selected based on RNG
-            uint256 bucketIndex = 0;
+            uint256 expectedBucketIndex = 0;
             uint256 cumulativeOdds = 0;
             for (uint256 j = 0; j < bucketsMulti.length; j++) {
                 cumulativeOdds += bucketsMulti[j].oddsBps;
-                if (rng < cumulativeOdds) {
-                    bucketIndex = j;
+                if (expectedRng < cumulativeOdds) {
+                    expectedBucketIndex = j;
                     break;
                 }
             }
 
             // Use an order amount that falls within the expected bucket's range
             uint256 orderAmount;
-            if (bucketIndex == 0) {
+            if (expectedBucketIndex == 0) {
                 orderAmount = 0.03 ether; // Within bucket 0 range (0.01-0.05)
-            } else if (bucketIndex == 1) {
+            } else if (expectedBucketIndex == 1) {
                 orderAmount = 0.1 ether; // Within bucket 1 range (0.06-0.15)
             } else {
                 orderAmount = 0.2 ether; // Within bucket 2 range (0.16-0.25)
@@ -1288,7 +1288,7 @@ contract TestPacksInitializable is Test {
             // Fulfill the commit - this will internally select the bucket based on RNG
             packs.fulfill(
                 commitId,
-                rng,
+                expectedRng,
                 address(0),
                 "",
                 orderAmount,
@@ -1301,7 +1301,7 @@ contract TestPacksInitializable is Test {
             );
 
             // Track bucket selections based on the expected bucket
-            bucketCounts[bucketIndex]++;
+            bucketCounts[expectedBucketIndex]++;
         }
 
         // Basic statistical validation - all buckets should be selected at least once
