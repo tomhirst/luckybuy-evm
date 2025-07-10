@@ -49,13 +49,13 @@ contract PacksInitializable is
 
     event Commit(
         address indexed sender,
-        uint256 commitId,
+        uint256 indexed commitId,
         address indexed receiver,
         address cosigner,
         uint256 seed,
         uint256 counter,
         uint256 packPrice,
-        bytes32 indexed packHash,
+        bytes32 packHash,
         bytes32 digest
     );
     event Fulfillment(

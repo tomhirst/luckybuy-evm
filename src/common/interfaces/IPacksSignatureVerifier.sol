@@ -29,7 +29,7 @@ interface IPacksSignatureVerifier {
 
     function hashPack(uint256 packPrice, BucketData[] memory buckets) external pure returns (bytes32);
 
-    function hashOrder(address to, uint256 value, bytes memory data, address tokenAddress, uint256 tokenId)
+    function hashOrder(bytes32 digest, address to, uint256 value, bytes memory data, address tokenAddress, uint256 tokenId)
         external
         pure
         returns (bytes32);
