@@ -30,6 +30,11 @@ contract PacksInitializable is
     uint256 public constant MIN_COMMIT_CANCELLABLE_TIME = 1 minutes;
     uint256 public commitCancellableTime = 10 minutes;
     mapping(uint256 commitId => uint256 cancellableAt) public commitCancellableAt;
+
+    // NFT fulfillment option expires after a short time
+    uint256 public constant MIN_NFT_FULFILLMENT_EXPIRY_TIME = 30 seconds;
+    uint256 public nftFulfillmentExpiryTime = 1 minutes;
+    mapping(uint256 commitId => uint256 expiresAt) public nftFulfillmentExpiresAt;
    
     bytes32 public constant FEE_RECEIVER_MANAGER_ROLE = keccak256("FEE_RECEIVER_MANAGER_ROLE");
 
@@ -71,6 +76,7 @@ contract PacksInitializable is
         address receiver,
         address choiceSigner,
         FulfillmentOption choice,
+        FulfillmentOption fulfillmentType,
         bytes32 digest
     );
     event CosignerAdded(address indexed cosigner);
@@ -82,6 +88,7 @@ contract PacksInitializable is
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event MinPackPriceUpdated(uint256 oldMinPackPrice, uint256 newMinPackPrice);
     event CommitCancellableTimeUpdated(uint256 oldCommitCancellableTime, uint256 newCommitCancellableTime);
+    event NftFulfillmentExpiryTimeUpdated(uint256 oldNftFulfillmentExpiryTime, uint256 newNftFulfillmentExpiryTime);
     event CommitCancelled(uint256 indexed commitId, bytes32 digest);
     event PayoutBpsUpdated(uint256 oldPayoutBps, uint256 newPayoutBps);
     event FeeReceiverUpdated(address indexed oldFeeReceiver, address indexed newFeeReceiver);
@@ -102,6 +109,7 @@ contract PacksInitializable is
     error InvalidCommitId();
     error WithdrawalFailed();
     error InvalidCommitCancellableTime();
+    error InvalidNftFulfillmentExpiryTime();
     error CommitIsCancelled();
     error CommitNotCancellable();
     error InvalidPayoutBps();
@@ -240,6 +248,7 @@ contract PacksInitializable is
 
         packs.push(commitData);
         commitCancellableAt[commitId] = block.timestamp + commitCancellableTime;
+        nftFulfillmentExpiresAt[commitId] = block.timestamp + nftFulfillmentExpiryTime;
 
         bytes32 digest = hashCommit(commitData);
         commitIdByDigest[digest] = commitId;
@@ -355,6 +364,12 @@ contract PacksInitializable is
         address choiceSigner = verifyHash(choiceHash, choiceSignature_);
         if (choiceSigner != commitData.receiver && choiceSigner != commitData.cosigner) revert InvalidChoiceSigner();
 
+        // If the user wants to fulfill via NFT but the option has expired, default to payout
+        FulfillmentOption fulfillmentType = choice_;
+        if (choice_ == FulfillmentOption.NFT && block.timestamp > nftFulfillmentExpiresAt[commitId_]) {
+            fulfillmentType = FulfillmentOption.Payout;
+        }
+
         // Mark the commit as fulfilled
         isFulfilled[commitId_] = true;
 
@@ -364,7 +379,7 @@ contract PacksInitializable is
         commitBalance -= commitData.packPrice;
 
         // Handle user choice and fulfil order or payout
-        if (choice_ == FulfillmentOption.NFT) {
+        if (fulfillmentType == FulfillmentOption.NFT) {
             // execute the market data to transfer the nft
             bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
             if (success) {
@@ -384,6 +399,7 @@ contract PacksInitializable is
                     commitData.receiver,
                     choiceSigner,
                     choice_,
+                    fulfillmentType,
                     digest
                 );
             } else {
@@ -408,10 +424,11 @@ contract PacksInitializable is
                     commitData.receiver,
                     choiceSigner,
                     choice_,
+                    fulfillmentType,
                     digest
                 );
             }
-        } else if (choice_ == FulfillmentOption.Payout) {
+        } else if (fulfillmentType == FulfillmentOption.Payout) {
             // Payout fulfillment route
             // Calculate payout amount based on NFT value and payoutBps
             uint256 payoutAmount = (orderAmount_ * payoutBps) / 10000;
@@ -436,6 +453,7 @@ contract PacksInitializable is
                 commitData.receiver,
                 choiceSigner,
                 choice_,
+                fulfillmentType,
                 digest
             );
         } else {
@@ -644,6 +662,19 @@ contract PacksInitializable is
         uint256 oldCommitCancellableTime = commitCancellableTime;
         commitCancellableTime = commitCancellableTime_;
         emit CommitCancellableTimeUpdated(oldCommitCancellableTime, commitCancellableTime_);
+    }
+
+    /// @notice Sets the NFT fulfillment expiry time
+    /// @param nftFulfillmentExpiryTime_ New NFT fulfillment expiry time
+    /// @dev Only callable by admin role
+    /// @dev Emits a NftFulfillmentExpiryTimeUpdated event
+    function setNftFulfillmentExpiryTime(uint256 nftFulfillmentExpiryTime_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (nftFulfillmentExpiryTime_ < MIN_NFT_FULFILLMENT_EXPIRY_TIME) {
+            revert InvalidNftFulfillmentExpiryTime();
+        }
+        uint256 oldNftFulfillmentExpiryTime = nftFulfillmentExpiryTime;
+        nftFulfillmentExpiryTime = nftFulfillmentExpiryTime_;
+        emit NftFulfillmentExpiryTimeUpdated(oldNftFulfillmentExpiryTime, nftFulfillmentExpiryTime_);
     }
 
     /// @notice Sets the maximum allowed reward

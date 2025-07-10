@@ -126,6 +126,7 @@ contract TestPacksInitializable is Test {
         address receiver,
         address choiceSigner,
         IPacksSignatureVerifier.FulfillmentOption choice,
+        IPacksSignatureVerifier.FulfillmentOption fulfillmentType,
         bytes32 digest
     );
 
@@ -419,17 +420,18 @@ contract TestPacksInitializable is Test {
 
         vm.expectEmit(true, true, false, true);
         emit Fulfillment(
-            address(this), // msg.sender is the test contract
+            address(this),
             commitId,
-            rng, // RNG value
-            10000, // bucket 0 odds (100%)
-            0, // bucket index
-            expectedPayoutAmount, // payout amount (90% of orderAmount)
-            address(0), // no token for payout
-            0, // no tokenId for payout
-            0, // no amount for payout
-            receiver, // receiver
-            cosigner, // choiceSigner is the cosigner
+            rng,
+            10000,
+            0,
+            expectedPayoutAmount,
+            address(0),
+            0,
+            0,
+            receiver,
+            cosigner,
+            IPacksSignatureVerifier.FulfillmentOption.Payout,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             digest
         );
@@ -496,17 +498,18 @@ contract TestPacksInitializable is Test {
 
         vm.expectEmit(true, true, false, true);
         emit Fulfillment(
-            address(this), // msg.sender is the test contract
+            address(this),
             commitId,
-            rng, // RNG value
-            10000, // bucket 0 odds (100%)
-            0, // bucket index
-            0, // no payout amount for NFT fulfillment
+            rng,
+            10000,
+            0,
+            0,
             token,
             tokenId,
             orderAmount,
-            receiver, // receiver
-            cosigner, // choiceSigner is the cosigner
+            receiver,
+            cosigner,
+            IPacksSignatureVerifier.FulfillmentOption.NFT,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             digest
         );
@@ -2019,5 +2022,119 @@ contract TestPacksInitializable is Test {
         packs.removeCosigner(bob);
         assertFalse(packs.isCosigner(bob));
         vm.stopPrank();
+    }
+
+    function testNftFulfillmentExpiryTimeSecurity() public {
+        // Non-admin should not be able to set the NFT fulfillment expiry time
+        vm.startPrank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                bytes4(keccak256("AccessControlUnauthorizedAccount(address,bytes32)")),
+                user,
+                bytes32(0) // DEFAULT_ADMIN_ROLE
+            )
+        );
+        packs.setNftFulfillmentExpiryTime(2 minutes);
+        vm.stopPrank();
+
+        // Admin cannot set a value below the minimum
+        vm.startPrank(admin);
+        vm.expectRevert(PacksInitializable.InvalidNftFulfillmentExpiryTime.selector);
+        packs.setNftFulfillmentExpiryTime(20 seconds); // Less than MIN_NFT_FULFILLMENT_EXPIRY_TIME (30s)
+        vm.stopPrank();
+
+        // Admin can set a valid value
+        vm.startPrank(admin);
+        packs.setNftFulfillmentExpiryTime(2 minutes);
+        assertEq(packs.nftFulfillmentExpiryTime(), 2 minutes);
+        vm.stopPrank();
+    }
+
+    function testFulfillNftAfterExpiryDefaultsToPayout() public {
+        // Set a short NFT fulfillment expiry time for quicker testing (minimum allowed)
+        vm.prank(admin);
+        packs.setNftFulfillmentExpiryTime(30 seconds);
+
+        // Create commit as the user
+        vm.startPrank(user);
+        vm.deal(user, packPrice);
+        bytes memory packSignature = signPack(packPrice, buckets);
+        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
+        vm.stopPrank();
+
+        // Fund the contract treasury so that payouts can be covered
+        (bool success,) = payable(address(packs)).call{value: 5 ether}("");
+        require(success, "Failed to fund contract");
+
+        // Prepare signatures for fulfill
+        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
+        uint256 rng = prng.rng(commitSignature);
+
+        uint256 orderAmount = 0.5 ether; // Within bucket range (0.01 - 1 ether)
+        address marketplace = address(0x123);
+        address token = address(0x123);
+        uint256 tokenId = 1;
+        bytes memory orderData = hex"00";
+
+        bytes memory orderSignature = signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, orderData, token, tokenId);
+        bytes memory choiceSignature = signChoice(commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.NFT);
+
+        // Move time forward beyond the NFT fulfillment expiry window
+        vm.warp(block.timestamp + 1 minutes);
+
+        uint256 receiverInitialBalance = receiver.balance;
+        uint256 expectedPayout = (orderAmount * packs.payoutBps()) / 10000;
+
+        // Calculate digest for expected event
+        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+            id: commitId,
+            receiver: receiver,
+            cosigner: cosigner,
+            seed: seed,
+            counter: 0,
+            packPrice: packPrice,
+            payoutBps: packs.payoutBps(),
+            buckets: buckets,
+            packHash: packs.hashPack(packPrice, buckets)
+        });
+        bytes32 digest = packs.hashCommit(commitData);
+
+        // Expect Fulfillment event with payout fallback
+        vm.expectEmit(true, true, false, true);
+        emit Fulfillment(
+            address(this),
+            commitId,
+            rng,
+            10000,
+            0,
+            expectedPayout,
+            address(0),
+            0,
+            0,
+            receiver,
+            cosigner,
+            IPacksSignatureVerifier.FulfillmentOption.NFT, // choice
+            IPacksSignatureVerifier.FulfillmentOption.Payout, // actual fulfillment type
+            digest
+        );
+
+        // Fulfill – even though the choice is NFT, the expiry has passed so it should default to payout
+        packs.fulfill(
+            commitId,
+            rng,
+            marketplace,
+            orderData,
+            orderAmount,
+            token,
+            tokenId,
+            commitSignature,
+            orderSignature,
+            IPacksSignatureVerifier.FulfillmentOption.NFT, // User's choice
+            choiceSignature
+        );
+
+        // Assertions
+        assertTrue(packs.isFulfilled(commitId));
+        assertEq(receiver.balance, receiverInitialBalance + expectedPayout);
     }
 }
