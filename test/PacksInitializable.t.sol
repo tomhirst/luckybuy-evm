@@ -116,6 +116,9 @@ contract TestPacksInitializable is Test {
     event Fulfillment(
         address indexed sender,
         uint256 indexed commitId,
+        uint256 rng,
+        uint256 odds,
+        uint256 bucketIndex,
         uint256 payout,
         address token,
         uint256 tokenId,
@@ -128,9 +131,6 @@ contract TestPacksInitializable is Test {
 
     event CommitExpired(uint256 indexed commitId, bytes32 digest);
     event Withdrawal(address indexed sender, uint256 amount, address feeReceiver);
-    event BucketIndexSelected(
-        address indexed sender, uint256 indexed commitId, uint256 rng, uint256 odds, uint256 bucketIndex, bytes32 digest
-    );
 
     function setUp() public {
         vm.startPrank(admin);
@@ -225,10 +225,10 @@ contract TestPacksInitializable is Test {
             buckets: buckets,
             packHash: packs.hashPack(packPrice, buckets)
         });
-        bytes32 expectedDigest = packs.hashCommit(commitData);
+        bytes32 digest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, true, true, true);
-        emit Commit(user, 0, receiver, cosigner, seed, 0, packPrice, packs.hashPack(packPrice, buckets), expectedDigest);
+        emit Commit(user, 0, receiver, cosigner, seed, 0, packPrice, packs.hashPack(packPrice, buckets), digest);
 
         uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, signature);
 
@@ -391,15 +391,6 @@ contract TestPacksInitializable is Test {
         vm.deal(cosigner, 5 ether);
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
-
-        // Verify bucket was selected
-        assertTrue(packs.isBucketSelected(commitId));
-        assertEq(packs.bucketIndex(commitId), 0); // Should select bucket 0 with 100% odds
-
         // Now fulfill with payout
         uint256 orderAmount = 0.03 ether; // Within bucket 0 range
         bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
@@ -407,6 +398,9 @@ contract TestPacksInitializable is Test {
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
 
+        // Calculate RNG and bucket selection
+        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
+        uint256 rng = prng.rng(commitSignature);
         uint256 expectedPayoutAmount = (orderAmount * packs.payoutBps()) / 10000;
 
         // Calculate the actual digest that will be emitted
@@ -421,12 +415,15 @@ contract TestPacksInitializable is Test {
             buckets: buckets,
             packHash: packs.hashPack(packPrice, buckets)
         });
-        bytes32 expectedDigest = packs.hashCommit(commitData);
+        bytes32 digest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, true, false, true);
         emit Fulfillment(
             address(this), // msg.sender is the test contract
             commitId,
+            rng, // RNG value
+            10000, // bucket 0 odds (100%)
+            0, // bucket index
             expectedPayoutAmount, // payout amount (90% of orderAmount)
             address(0), // no token for payout
             0, // no tokenId for payout
@@ -434,16 +431,18 @@ contract TestPacksInitializable is Test {
             receiver, // receiver
             cosigner, // choiceSigner is the cosigner
             IPacksSignatureVerifier.FulfillmentOption.Payout,
-            expectedDigest
+            digest
         );
 
         packs.fulfill(
             commitId,
+            rng, // RNG value
             address(0), // marketplace
             "", // orderData
             orderAmount,
             address(0), // token
             0, // tokenId
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -466,14 +465,9 @@ contract TestPacksInitializable is Test {
         vm.deal(cosigner, 5 ether);
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
-
-        // Verify bucket was selected
-        assertTrue(packs.isBucketSelected(commitId));
-        assertEq(packs.bucketIndex(commitId), 0); // Should select bucket 0 with 100% odds
+        uint256 rng = prng.rng(commitSignature);
 
         // Now fulfill with NFT - use proper amount within bucket range
         uint256 orderAmount = 0.5 ether; // Within bucket range
@@ -494,7 +488,7 @@ contract TestPacksInitializable is Test {
             buckets: buckets,
             packHash: packs.hashPack(packPrice, buckets)
         });
-        bytes32 expectedDigest = packs.hashCommit(commitData);
+        bytes32 digest = packs.hashCommit(commitData);
         bytes memory orderSignature = signOrder(marketplace, orderAmount, orderData, token, tokenId);
 
         bytes memory choiceSignature =
@@ -504,6 +498,9 @@ contract TestPacksInitializable is Test {
         emit Fulfillment(
             address(this), // msg.sender is the test contract
             commitId,
+            rng, // RNG value
+            10000, // bucket 0 odds (100%)
+            0, // bucket index
             0, // no payout amount for NFT fulfillment
             token,
             tokenId,
@@ -511,16 +508,18 @@ contract TestPacksInitializable is Test {
             receiver, // receiver
             cosigner, // choiceSigner is the cosigner
             IPacksSignatureVerifier.FulfillmentOption.NFT,
-            expectedDigest
+            digest
         );
 
         packs.fulfill(
             commitId,
+            rng, // RNG value
             marketplace,
             orderData,
             orderAmount,
             token,
             tokenId,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             choiceSignature
@@ -529,7 +528,7 @@ contract TestPacksInitializable is Test {
         assertTrue(packs.isFulfilled(commitId));
     }
 
-    function testFulfillWithoutBucketSelection() public {
+    function testFulfillWithInvalidRng() public {
         // Create commit
         vm.startPrank(user);
         vm.deal(user, packPrice);
@@ -542,21 +541,24 @@ contract TestPacksInitializable is Test {
         require(success, "Failed to fund contract");
         vm.stopPrank();
 
-        // Try to fulfill without selecting bucket first
+        // Try to fulfill with wrong RNG value
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
+        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
 
-        vm.expectRevert(PacksInitializable.BucketIndexNotSelected.selector);
+        vm.expectRevert(PacksInitializable.InvalidRng.selector);
         packs.fulfill(
             commitId,
+            9999, // Wrong RNG value
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -576,10 +578,9 @@ contract TestPacksInitializable is Test {
         require(success, "Failed to fund contract");
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
+        uint256 rng = prng.rng(commitSignature);
 
         // Try to fulfill with order amount outside bucket range
         uint256 orderAmount = 2 ether; // Outside all bucket ranges
@@ -591,11 +592,13 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidAmount.selector);
         packs.fulfill(
             commitId,
+            rng,
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -615,10 +618,9 @@ contract TestPacksInitializable is Test {
         require(success, "Failed to fund contract");
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
+        uint256 rng = prng.rng(commitSignature);
 
         // First fulfill
         uint256 orderAmount = 0.03 ether;
@@ -629,11 +631,13 @@ contract TestPacksInitializable is Test {
 
         packs.fulfill(
             commitId,
+            rng,
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -643,11 +647,13 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.AlreadyFulfilled.selector);
         packs.fulfill(
             commitId,
+            rng,
             address(0),
             "different",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -664,10 +670,9 @@ contract TestPacksInitializable is Test {
         vm.deal(cosigner, 20 ether);
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
+        uint256 rng = prng.rng(commitSignature);
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
@@ -678,11 +683,13 @@ contract TestPacksInitializable is Test {
         // Call fulfill with some ETH value to fund the treasury
         packs.fulfill{value: 10 ether}(
             commitId,
+            rng,
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -692,11 +699,13 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.AlreadyFulfilled.selector);
         packs.fulfill{value: 0}(
             commitId,
+            rng,
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -721,6 +730,7 @@ contract TestPacksInitializable is Test {
         );
 
         uint256 initialBalance = user.balance;
+        vm.stopPrank();
 
         // Wait for expiration
         vm.warp(block.timestamp + 2 days);
@@ -737,11 +747,12 @@ contract TestPacksInitializable is Test {
             buckets: buckets,
             packHash: packs.hashPack(packPrice, buckets)
         });
-        bytes32 expectedDigest = packs.hashCommit(commitData);
+        bytes32 digest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, false, false, true);
-        emit CommitExpired(commitId, expectedDigest);
+        emit CommitExpired(commitId, digest);
 
+        vm.prank(cosigner);
         packs.expire(commitId);
 
         assertTrue(packs.isExpired(commitId));
@@ -783,10 +794,10 @@ contract TestPacksInitializable is Test {
             buckets: buckets,
             packHash: packs.hashPack(packPrice, buckets)
         });
-        bytes32 expectedDigest = packs.hashCommit(commitData);
+        bytes32 digest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, false, false, true);
-        emit CommitExpired(commitId, expectedDigest);
+        emit CommitExpired(commitId, digest);
 
         vm.prank(cosigner);
         packs.expire(commitId);
@@ -814,8 +825,8 @@ contract TestPacksInitializable is Test {
         );
         vm.stopPrank();
 
-        // Try to expire before expiration time
-        vm.prank(user);
+        // Try to expire before expiration time as cosigner
+        vm.prank(cosigner);
         vm.expectRevert(PacksInitializable.CommitNotExpired.selector);
         packs.expire(commitId);
     }
@@ -841,8 +852,8 @@ contract TestPacksInitializable is Test {
         // Wait for expiration
         vm.warp(block.timestamp + 2 days);
 
-        // Try to expire as non-owner
-        vm.expectRevert(PacksInitializable.InvalidCommitOwner.selector);
+        // Try to expire as non-cosigner
+        vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         vm.prank(bob);
         packs.expire(commitId);
     }
@@ -1065,297 +1076,76 @@ contract TestPacksInitializable is Test {
 
     receive() external payable {}
 
-    // ========================================
-    // BUCKET SELECTION TESTS
-    // ========================================
-
-    function testSelectBucketIndexSuccess() public {
-        // Create commit
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
-        vm.stopPrank();
-
-        // Select bucket index
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-
-        // Calculate the actual digest that will be emitted
-        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
-            id: commitId,
-            receiver: receiver,
-            cosigner: cosigner,
-            seed: seed,
-            counter: 0,
-            packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
-            buckets: buckets,
-            packHash: packs.hashPack(packPrice, buckets)
-        });
-        bytes32 expectedDigest = packs.hashCommit(commitData);
-
-        // Calculate the actual RNG value that will be generated
-        uint256 expectedRng = prng.rng(commitSignature);
-
-        vm.expectEmit(true, true, false, true);
-        emit BucketIndexSelected(
-            address(this), // msg.sender is the test contract
-            commitId,
-            expectedRng, // Actual RNG value
-            10000, // bucket 0 odds (100%)
-            0, // bucket index
-            expectedDigest
-        );
-
-        packs.selectBucketIndex(commitId, commitSignature);
-
-        // Verify bucket was selected
-        assertTrue(packs.isBucketSelected(commitId));
-        assertEq(packs.bucketIndex(commitId), 0); // Should select bucket 0 with 100% odds
-    }
-
-    function testSelectBucketIndexSuccessMulti() public {
-        // Create commit
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, bucketsMulti);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, bucketsMulti, packSignature);
-        vm.stopPrank();
-
-        // Select bucket index
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, bucketsMulti);
-
-        // Calculate the actual digest that will be emitted
-        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
-            id: commitId,
-            receiver: receiver,
-            cosigner: cosigner,
-            seed: seed,
-            counter: 0,
-            packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
-            buckets: bucketsMulti,
-            packHash: packs.hashPack(packPrice, bucketsMulti)
-        });
-        bytes32 expectedDigest = packs.hashCommit(commitData);
-
-        // Capture the RNG value and bucket selection
-        uint256 expectedRng = prng.rng(commitSignature);
-
-        // Calculate expected bucket based on RNG and cumulative odds
-        uint256 expectedBucket = 0;
-        uint256 cumulativeOdds = 0;
-        for (uint256 i = 0; i < bucketsMulti.length; i++) {
-            cumulativeOdds += bucketsMulti[i].oddsBps;
-            if (expectedRng < cumulativeOdds) {
-                expectedBucket = i;
-                break;
-            }
-        }
-
-        vm.expectEmit(true, true, false, true);
-        emit BucketIndexSelected(
-            address(this), // msg.sender is the test contract
-            commitId,
-            expectedRng, // Actual RNG value
-            bucketsMulti[expectedBucket].oddsBps, // Selected bucket odds
-            expectedBucket, // Expected bucket index
-            expectedDigest
-        );
-
-        packs.selectBucketIndex(commitId, commitSignature);
-
-        // Verify bucket was selected correctly
-        assertTrue(packs.isBucketSelected(commitId));
-        assertEq(packs.bucketIndex(commitId), expectedBucket, "Bucket index should match RNG-based selection");
-
-        // Verify the selected bucket's odds are correct
-        assertEq(
-            packs.bucketIndex(commitId) < bucketsMulti.length, true, "Selected bucket should be within valid range"
-        );
-
-        // Verify the RNG value is within expected range (0-10000)
-        assertTrue(expectedRng <= 10000, "RNG should be within 0-10000 range");
-    }
-
-    function testSelectBucketIndexByDigest() public {
-        // Create commit
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
-        vm.stopPrank();
-
-        // Get the digest
-        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
-            id: commitId,
-            receiver: receiver,
-            cosigner: cosigner,
-            seed: seed,
-            counter: 0,
-            packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
-            buckets: buckets,
-            packHash: packs.hashPack(packPrice, buckets)
-        });
-        bytes32 digest = packs.hashCommit(commitData);
-
-        // Select bucket index by digest
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndexByDigest(digest, commitSignature);
-
-        // Verify bucket was selected
-        assertTrue(packs.isBucketSelected(commitId));
-        assertEq(packs.bucketIndex(commitId), 0);
-    }
-
-    function testSelectBucketIndexAlreadySelected() public {
-        // Create commit
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
-        vm.stopPrank();
-
-        // Select bucket index first time
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
-
-        // Try to select bucket index again
-        vm.expectRevert(PacksInitializable.BucketIndexAlreadySelected.selector);
-        packs.selectBucketIndex(commitId, commitSignature);
-    }
-
-    function testSelectBucketIndexInvalidCosigner() public {
-        // Create commit
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
-        vm.stopPrank();
-
-        // Try to select bucket index with wrong signature
-        bytes memory wrongSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
-
-        vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
-        packs.selectBucketIndex(commitId, wrongSignature);
-    }
-
-    function testSelectBucketIndexWhenPaused() public {
-        // Create commit
-        vm.startPrank(user);
-        vm.deal(user, packPrice);
-        bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
-        vm.stopPrank();
-
-        // Pause the contract
-        vm.prank(admin);
-        packs.pause();
-
-        // Try to select bucket index when paused
-        vm.prank(cosigner);
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        vm.expectRevert();
-        packs.selectBucketIndex(commitId, commitSignature);
-    }
-
-    function testSelectBucketIndexRNGDistribution() public {
-        // Test that RNG-based bucket selection follows expected statistical distribution
-        // Create multiple commits and track bucket selections to validate RNG behavior
-
-        uint256[3] memory bucketCounts;
-        uint256 numTests = 1000; // Number of commits to test
-
-        for (uint256 i = 0; i < numTests; i++) {
-            // Create commit with different seed for each test
-            vm.startPrank(user);
-            vm.deal(user, packPrice);
-            bytes memory packSignature = signPack(packPrice, bucketsMulti);
-            uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed + i, bucketsMulti, packSignature);
-            vm.stopPrank();
-
-            // Select bucket index
-            vm.prank(cosigner);
-            bytes memory commitSignature = signCommit(commitId, receiver, seed + i, i, packPrice, bucketsMulti);
-
-            // Get expected RNG and bucket
-            uint256 expectedRng = prng.rng(commitSignature);
-            uint256 expectedBucket = 0;
-            uint256 cumulativeOdds = 0;
-            for (uint256 j = 0; j < bucketsMulti.length; j++) {
-                cumulativeOdds += bucketsMulti[j].oddsBps;
-                if (expectedRng < cumulativeOdds) {
-                    expectedBucket = j;
-                    break;
-                }
-            }
-
-            packs.selectBucketIndex(commitId, commitSignature);
-
-            // Verify bucket selection matches RNG-based expectation
-            assertEq(packs.bucketIndex(commitId), expectedBucket, "Bucket selection should match RNG calculation");
-
-            // Track bucket selections
-            bucketCounts[expectedBucket]++;
-        }
-
-        // Basic statistical validation - all buckets should be selected at least once
-        assertTrue(bucketCounts[0] > 0, "Bucket 0 should be selected at least once");
-        assertTrue(bucketCounts[1] > 0, "Bucket 1 should be selected at least once");
-        assertTrue(bucketCounts[2] > 0, "Bucket 2 should be selected at least once");
-
-        // Verify total selections equals number of tests
-        assertEq(
-            bucketCounts[0] + bucketCounts[1] + bucketCounts[2],
-            numTests,
-            "Total selections should equal number of tests"
-        );
-
-        // Verify bucket 1 (50% odds) is selected more frequently than others
-        // This is a basic check that the higher odds bucket gets selected more often
-        assertTrue(
-            bucketCounts[1] >= bucketCounts[0],
-            "Bucket 1 (50% odds) should be selected at least as often as bucket 0 (30% odds)"
-        );
-        assertTrue(
-            bucketCounts[1] >= bucketCounts[2],
-            "Bucket 1 (50% odds) should be selected at least as often as bucket 2 (20% odds)"
-        );
-    }
-
     function testInvalidPackHashSigner() public {
-        // Test that commit reverts if the pack hash is not signed by the cosigner
+        // Test that fulfill reverts if the commit is not signed by the cosigner
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
         uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
         vm.stopPrank();
 
-        // Try to select bucket index with wrong signature
+        // Fund contract so balance check doesn't fail first
+        (bool success,) = payable(address(packs)).call{value: 1 ether}("");
+        require(success, "Failed to fund contract");
+
+        // Try to fulfill with wrong signature
         bytes memory wrongSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
+        uint256 orderAmount = 0.03 ether;
+        bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
+        bytes memory choiceSignature = signChoice(
+            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
+        );
 
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
-        packs.selectBucketIndex(commitId, wrongSignature);
+        packs.fulfill(
+            commitId,
+            0, // wrong RNG
+            address(0),
+            "",
+            orderAmount,
+            address(0),
+            0,
+            wrongSignature,
+            orderSignature,
+            IPacksSignatureVerifier.FulfillmentOption.Payout,
+            choiceSignature
+        );
     }
 
     function testInvalidCommitSigner() public {
-        // Test that selectBucketIndex reverts if the commit is not signed by the cosigner
+        // Test that fulfill reverts if the commit is not signed by the cosigner
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
         uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
         vm.stopPrank();
 
-        // Try to select bucket index with wrong signature
+        // Fund contract so balance check doesn't fail first
+        (bool success,) = payable(address(packs)).call{value: 1 ether}("");
+        require(success, "Failed to fund contract");
+
+        // Try to fulfill with wrong signature
         bytes memory wrongSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
+        uint256 orderAmount = 0.03 ether;
+        bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
+        bytes memory choiceSignature = signChoice(
+            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
+        );
 
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
-        packs.selectBucketIndex(commitId, wrongSignature);
+        packs.fulfill(
+            commitId,
+            0, // wrong RNG
+            address(0),
+            "",
+            orderAmount,
+            address(0),
+            0,
+            wrongSignature,
+            orderSignature,
+            IPacksSignatureVerifier.FulfillmentOption.Payout,
+            choiceSignature
+        );
     }
 
     function testInvalidOrderHashSigner() public {
@@ -1372,25 +1162,29 @@ contract TestPacksInitializable is Test {
         require(success, "Failed to fund contract");
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
+        uint256 rng = prng.rng(commitSignature);
 
         // Try to fulfill with wrong signature
         bytes memory wrongSignature = signOrder(address(0), 0.03 ether, "", address(0), 0, bob);
+        bytes memory choiceSignature = signChoice(
+            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
+        );
 
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         packs.fulfill(
             commitId,
+            rng,
             address(0),
             "",
             0.03 ether,
             address(0),
             0,
+            commitSignature,
             wrongSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
-            ""
+            choiceSignature
         );
     }
 
@@ -1407,10 +1201,9 @@ contract TestPacksInitializable is Test {
         require(success, "Failed to fund contract");
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
+        uint256 rng = prng.rng(commitSignature);
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
@@ -1423,11 +1216,13 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidChoiceSigner.selector);
         packs.fulfill(
             commitId,
+            rng,
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             wrongChoiceSignature
@@ -1479,11 +1274,29 @@ contract TestPacksInitializable is Test {
 
         vm.deal(address(packs), 10 ether);
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Try to fulfill when paused
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
+        uint256 rng = prng.rng(commitSignature);
+        uint256 orderAmount = 0.03 ether;
+        bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
+        bytes memory choiceSignature = signChoice(
+            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
+        );
+
         vm.expectRevert(abi.encodeWithSignature("EnforcedPause()"));
-        packs.selectBucketIndex(commitId, commitSignature);
+        packs.fulfill(
+            commitId,
+            rng,
+            address(0),
+            "",
+            orderAmount,
+            address(0),
+            0,
+            commitSignature,
+            orderSignature,
+            IPacksSignatureVerifier.FulfillmentOption.Payout,
+            choiceSignature
+        );
     }
 
     function testUpgradeSecurity() public {
@@ -1775,10 +1588,9 @@ contract TestPacksInitializable is Test {
         vm.deal(cosigner, 5 ether);
         vm.stopPrank();
 
-        // Select bucket index first
-        vm.prank(cosigner);
+        // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        packs.selectBucketIndex(commitId, commitSignature);
+        uint256 rng = prng.rng(commitSignature);
 
         // Get the digest
         IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
@@ -1803,11 +1615,13 @@ contract TestPacksInitializable is Test {
 
         packs.fulfillByDigest(
             digest,
+            rng,
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
@@ -1832,11 +1646,13 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidCommitId.selector);
         packs.fulfillByDigest(
             invalidDigest,
+            0, // RNG
             address(0),
             "",
             orderAmount,
             address(0),
             0,
+            "", // commitSignature
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             choiceSignature
