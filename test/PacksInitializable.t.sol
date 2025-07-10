@@ -213,7 +213,21 @@ contract TestPacksInitializable is Test {
 
         bytes memory signature = signPack(packPrice, buckets);
 
-        vm.expectEmit(true, true, true, false);
+        // Calculate the actual digest that will be emitted
+        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+            id: 0,
+            receiver: receiver,
+            cosigner: cosigner,
+            seed: seed,
+            counter: 0,
+            packPrice: packPrice,
+            payoutBps: packs.payoutBps(),
+            buckets: buckets,
+            packHash: packs.hashPack(packPrice, buckets)
+        });
+        bytes32 expectedDigest = packs.hashCommit(commitData);
+
+        vm.expectEmit(true, true, true, true);
         emit Commit(
             user,
             0,
@@ -223,7 +237,7 @@ contract TestPacksInitializable is Test {
             0,
             packPrice,
             packs.hashPack(packPrice, buckets),
-            bytes32(0) // digest will be different
+            expectedDigest
         );
 
         uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, signature);
@@ -419,7 +433,7 @@ contract TestPacksInitializable is Test {
         });
         bytes32 expectedDigest = packs.hashCommit(commitData);
 
-        vm.expectEmit(true, true, true, false);
+        vm.expectEmit(true, true, false, true);
         emit Fulfillment(
             address(this), // msg.sender is the test contract
             commitId,
@@ -427,7 +441,7 @@ contract TestPacksInitializable is Test {
             address(0), // no token for payout
             0, // no tokenId for payout
             0, // no amount for payout
-            receiver,
+            receiver, // receiver
             cosigner, // choiceSigner is the cosigner
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             expectedDigest
@@ -478,13 +492,25 @@ contract TestPacksInitializable is Test {
         uint256 tokenId = 1;
         bytes memory orderData = hex"00";
 
-        bytes32 expectedDigest = keccak256(abi.encode(marketplace, orderAmount, orderData, token, tokenId));
+        // Calculate the actual digest that will be emitted
+        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+            id: commitId,
+            receiver: receiver,
+            cosigner: cosigner,
+            seed: seed,
+            counter: 0,
+            packPrice: packPrice,
+            payoutBps: packs.payoutBps(),
+            buckets: buckets,
+            packHash: packs.hashPack(packPrice, buckets)
+        });
+        bytes32 expectedDigest = packs.hashCommit(commitData);
         bytes memory orderSignature = signOrder(marketplace, orderAmount, orderData, token, tokenId);
 
         bytes memory choiceSignature =
             signChoice(commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.NFT);
 
-        vm.expectEmit(true, true, true, false);
+        vm.expectEmit(true, true, false, true);
         emit Fulfillment(
             address(this), // msg.sender is the test contract
             commitId,
@@ -492,9 +518,9 @@ contract TestPacksInitializable is Test {
             token,
             tokenId, 
             orderAmount,
-            receiver,
+            receiver, // receiver
             cosigner, // choiceSigner is the cosigner
-            IPacksSignatureVerifier.FulfillmentOption.Payout,
+            IPacksSignatureVerifier.FulfillmentOption.NFT,
             expectedDigest
         );
 
@@ -709,8 +735,22 @@ contract TestPacksInitializable is Test {
         // Wait for expiration
         vm.warp(block.timestamp + 2 days);
 
-        vm.expectEmit(true, true, true, false);
-        emit CommitExpired(commitId, bytes32(0)); // digest will be different
+        // Calculate the actual digest that will be emitted
+        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+            id: commitId,
+            receiver: user,
+            cosigner: cosigner,
+            seed: seed,
+            counter: 0,
+            packPrice: packPrice,
+            payoutBps: packs.payoutBps(),
+            buckets: buckets,
+            packHash: packs.hashPack(packPrice, buckets)
+        });
+        bytes32 expectedDigest = packs.hashCommit(commitData);
+
+        vm.expectEmit(true, false, false, true);
+        emit CommitExpired(commitId, expectedDigest);
 
         packs.expire(commitId);
 
@@ -741,8 +781,22 @@ contract TestPacksInitializable is Test {
         // Wait for expiration
         vm.warp(block.timestamp + 2 days);
 
-        vm.expectEmit(true, true, true, false);
-        emit CommitExpired(commitId, bytes32(0)); // digest will be different
+        // Calculate the actual digest that will be emitted
+        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+            id: commitId,
+            receiver: user,
+            cosigner: cosigner,
+            seed: seed,
+            counter: 0,
+            packPrice: packPrice,
+            payoutBps: packs.payoutBps(),
+            buckets: buckets,
+            packHash: packs.hashPack(packPrice, buckets)
+        });
+        bytes32 expectedDigest = packs.hashCommit(commitData);
+
+        vm.expectEmit(true, false, false, true);
+        emit CommitExpired(commitId, expectedDigest);
 
         vm.prank(cosigner);
         packs.expire(commitId);
@@ -812,7 +866,7 @@ contract TestPacksInitializable is Test {
 
         uint256 initialBalance = feeReceiver.balance;
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit(true, false, false, true);
         emit Withdrawal(admin, withdrawAmount, feeReceiver);
 
         vm.prank(admin);
@@ -1051,11 +1105,14 @@ contract TestPacksInitializable is Test {
         });
         bytes32 expectedDigest = packs.hashCommit(commitData);
 
-        vm.expectEmit(true, true, true, false);
+        // Calculate the actual RNG value that will be generated
+        uint256 expectedRng = prng.rng(commitSignature);
+
+        vm.expectEmit(true, true, false, true);
         emit BucketIndexSelected(
             address(this), // msg.sender is the test contract
             commitId,
-            0, // RNG will be different
+            expectedRng, // Actual RNG value
             10000, // bucket 0 odds (100%)
             0, // bucket index
             expectedDigest
@@ -1108,7 +1165,7 @@ contract TestPacksInitializable is Test {
             }
         }
 
-        vm.expectEmit(true, true, true, false);
+        vm.expectEmit(true, true, false, true);
         emit BucketIndexSelected(
             address(this), // msg.sender is the test contract
             commitId,
