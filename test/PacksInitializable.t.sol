@@ -121,6 +121,7 @@ contract TestPacksInitializable is Test {
         uint256 tokenId,
         uint256 amount,
         address receiver,
+        address choiceSigner,
         IPacksSignatureVerifier.FulfillmentOption choice,
         bytes32 digest
     );
@@ -427,6 +428,7 @@ contract TestPacksInitializable is Test {
             0, // no tokenId for payout
             0, // no amount for payout
             receiver,
+            cosigner, // choiceSigner is the cosigner
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             expectedDigest
         );
@@ -471,17 +473,38 @@ contract TestPacksInitializable is Test {
 
         // Now fulfill with NFT - use proper amount within bucket range
         uint256 orderAmount = 0.5 ether; // Within bucket range
-        bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
+        address marketplace = address(0x123);
+        address token = address(0x123);
+        uint256 tokenId = 1;
+        bytes memory orderData = hex"00";
+
+        bytes32 expectedDigest = keccak256(abi.encode(marketplace, orderAmount, orderData, token, tokenId));
+        bytes memory orderSignature = signOrder(marketplace, orderAmount, orderData, token, tokenId);
+
         bytes memory choiceSignature =
             signChoice(commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.NFT);
 
+        vm.expectEmit(true, true, true, false);
+        emit Fulfillment(
+            address(this), // msg.sender is the test contract
+            commitId,
+            0, // no payout amount for NFT fulfillment
+            token,
+            tokenId, 
+            orderAmount,
+            receiver,
+            cosigner, // choiceSigner is the cosigner
+            IPacksSignatureVerifier.FulfillmentOption.Payout,
+            expectedDigest
+        );
+
         packs.fulfill(
             commitId,
-            address(0), // marketplace
-            "", // orderData
+            marketplace,
+            orderData,
             orderAmount,
-            address(0), // token
-            0, // tokenId
+            token,
+            tokenId,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             choiceSignature

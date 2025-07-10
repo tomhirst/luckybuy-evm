@@ -71,6 +71,7 @@ contract PacksInitializable is
         uint256 tokenId,
         uint256 amount,
         address receiver,
+        address choiceSigner,
         FulfillmentOption choice,
         bytes32 digest
     );
@@ -409,6 +410,7 @@ contract PacksInitializable is
                     tokenId_,
                     orderAmount_,
                     commitData.receiver,
+                    choiceSigner,
                     choice_,
                     digest
                 );
@@ -429,6 +431,7 @@ contract PacksInitializable is
                     0, // no NFT token ID when NFT fails
                     0, // no NFT amount when NFT fails
                     commitData.receiver,
+                    choiceSigner,
                     choice_,
                     digest
                 );
@@ -453,6 +456,7 @@ contract PacksInitializable is
                 0, // no NFT token ID for payout
                 0, // no NFT amount for payout
                 commitData.receiver,
+                choiceSigner,
                 choice_,
                 digest
             );
