@@ -214,8 +214,8 @@ contract PacksInitializable is
         // Final total odds check - must equal 10000 (100%)
         if (totalOdds != 10000) revert InvalidBuckets();
 
-        // Verify pack hash signature
-        // Note: Ensures pack data was approved by an authorised cosigner
+        // Hash pack for cosigner validation and event emission
+        // Pack data gets re-checked in commitSignature on fulfill
         bytes32 packHash = hashPack(packPrice, buckets_);
         address cosigner = verifyHash(packHash, signature_);
         if (cosigner != cosigner_) revert InvalidCosigner();
