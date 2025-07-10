@@ -37,8 +37,6 @@ contract PacksInitializable is
     mapping(address receiver => uint256 counter) public packCount;
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
     mapping(uint256 commitId => bool expired) public isExpired;
-    mapping(uint256 commitId => bool bucketSelected) public isBucketSelected;
-    mapping(uint256 commitId => uint256 index) public bucketIndex;
 
     uint256 public payoutBps; // When user selects payout as reward
     uint256 public minReward; // Min ETH reward for a commit (whether it's NFT or payout)
@@ -60,12 +58,12 @@ contract PacksInitializable is
         bytes32 packHash,
         bytes32 digest
     );
-    event BucketIndexSelected(
-        address indexed sender, uint256 indexed commitId, uint256 rng, uint256 odds, uint256 bucketIndex, bytes32 digest
-    );
     event Fulfillment(
         address indexed sender,
         uint256 indexed commitId,
+        uint256 rng,
+        uint256 odds,
+        uint256 bucketIndex,
         uint256 payout,
         address token,
         uint256 tokenId,
@@ -113,12 +111,11 @@ contract PacksInitializable is
     error NewImplementationCannotBeZero();
     error BucketSelectionFailed();
     error InvalidFulfillmentOption();
-    error BucketIndexAlreadySelected();
-    error BucketIndexNotSelected();
+    error InvalidRng();
 
-    modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
-        if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
-            revert InvalidCommitOwner();
+    modifier onlyCommitCosigner(uint256 commitId_) {
+        if (packs[commitId_].cosigner != msg.sender) {
+            revert InvalidCosigner();
         }
         _;
     }
@@ -267,82 +264,41 @@ contract PacksInitializable is
         revert BucketSelectionFailed();
     }
 
-    /// @notice Selects a bucket index for a commit using the RNG
-    /// @param commitId_ ID of the commit to select a bucket index for
-    /// @param commitSignature_ Signature used for random number generation and to validate the commit
-    /// @dev Emits a BucketIndexSelected event on success
-    function selectBucketIndex(uint256 commitId_, bytes calldata commitSignature_) public whenNotPaused {
-        _selectBucketIndex(commitId_, commitSignature_);
-    }
-
-    /// @notice Selects a bucket index for a commit using the RNG
-    /// @param commitId_ ID of the commit to select a bucket index for
-    /// @param commitSignature_ Signature used for random number generation and to validate the commit
-    /// @dev Emits a BucketIndexSelected event on success
-    function _selectBucketIndex(uint256 commitId_, bytes calldata commitSignature_) internal nonReentrant {
-        if (commitId_ >= packs.length) revert InvalidCommitId();
-        if (isFulfilled[commitId_]) revert AlreadyFulfilled();
-        if (isExpired[commitId_]) revert CommitIsExpired();
-        if (isBucketSelected[commitId_]) revert BucketIndexAlreadySelected();
-
-        // Check the cosigner signed the commit
-        CommitData memory commitData = packs[commitId_];
-        address commitCosigner = verifyCommit(commitData, commitSignature_);
-        if (commitCosigner != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[commitCosigner]) revert InvalidCosigner();
-
-        uint256 rng = PRNG.rng(commitSignature_);
-        uint256 _bucketIndex = _getBucketIndex(rng, packs[commitId_].buckets);
-        bucketIndex[commitId_] = _bucketIndex;
-        isBucketSelected[commitId_] = true;
-
-        emit BucketIndexSelected(
-            msg.sender,
-            commitId_,
-            rng,
-            packs[commitId_].buckets[_bucketIndex].oddsBps,
-            _bucketIndex,
-            hashCommit(packs[commitId_])
-        );
-    }
-
-    /// @notice Selects a bucket index for a commit using the RNG
-    /// @param commitDigest_ Digest of the commit to select a bucket index for
-    /// @param commitSignature_ Signature used for random number generation and to validate the commit
-    /// @dev Emits a BucketIndexSelected event on success
-    function selectBucketIndexByDigest(bytes32 commitDigest_, bytes calldata commitSignature_) public whenNotPaused {
-        _selectBucketIndex(commitIdByDigest[commitDigest_], commitSignature_);
-    }
-
     /// @notice Fulfills a commit with the result of the random number generation
     /// @param commitId_ ID of the commit to fulfill
+    /// @param expectedRng_ Expected RNG value
     /// @param marketplace_ Address where the order should be executed
     /// @param orderData_ Calldata for the order execution
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
+    /// @param commitSignature_ Signature used for commit data
     /// @param orderSignature_ Signature used for orderData (and to validate orderData)
     /// @param choice_ Choice made by the receiver (Payout = 0, NFT = 1)
     /// @param choiceSignature_ Signature used for receiver's choice (only required for NFT choice)
     /// @dev Emits a Fulfillment event on success
     function fulfill(
         uint256 commitId_,
+        uint256 expectedRng_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
+        bytes calldata commitSignature_,
         bytes calldata orderSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
     ) public payable whenNotPaused {
         _fulfill(
             commitId_,
+            expectedRng_,
             marketplace_,
             orderData_,
             orderAmount_,
             token_,
             tokenId_,
+            commitSignature_,
             orderSignature_,
             choice_,
             choiceSignature_
@@ -351,11 +307,13 @@ contract PacksInitializable is
 
     function _fulfill(
         uint256 commitId_,
+        uint256 expectedRng_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
+        bytes calldata commitSignature_,
         bytes calldata orderSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
@@ -366,19 +324,29 @@ contract PacksInitializable is
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isExpired[commitId_]) revert CommitIsExpired();
         if (commitId_ >= packs.length) revert InvalidCommitId();
-        if (!isBucketSelected[commitId_]) revert BucketIndexNotSelected();
 
-        // Determine bucket and validate orderAmount is within bucket range
-        BucketData memory bucket = packs[commitId_].buckets[bucketIndex[commitId_]];
-        if (orderAmount_ < bucket.minValue) revert InvalidAmount();
-        if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
+        CommitData memory commitData = packs[commitId_];
+
+        // Check the cosigner signed the commit
+        address commitCosigner = verifyCommit(commitData, commitSignature_);
+        if (commitCosigner != commitData.cosigner) revert InvalidCosigner();
+        if (!isCosigner[commitCosigner]) revert InvalidCosigner();
+
+        // Validate the RNG
+        uint256 rng = PRNG.rng(commitSignature_);
+        if (rng != expectedRng_) revert InvalidRng();
 
         // Check the cosigner signed the order
         bytes32 _orderHash = hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_);
-        CommitData memory commitData = packs[commitId_];
         address orderCosigner = verifyHash(_orderHash, orderSignature_);
         if (orderCosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[orderCosigner]) revert InvalidCosigner();
+
+        // Determine bucket and validate orderAmount is within bucket range
+        uint256 bucketIndex = _getBucketIndex(rng, commitData.buckets);
+        BucketData memory bucket = commitData.buckets[bucketIndex];
+        if (orderAmount_ < bucket.minValue) revert InvalidAmount();
+        if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
         // Check the fulfillment option
         bytes32 digest = hashCommit(commitData);
@@ -404,7 +372,10 @@ contract PacksInitializable is
                 // emit a success transfer for the nft
                 emit Fulfillment(
                     msg.sender,
-                    commitData.id,
+                    commitId_,
+                    rng,
+                    bucket.oddsBps,
+                    bucketIndex,
                     0, // payout is 0 ETH for NFT fulfillment
                     token_,
                     tokenId_,
@@ -426,6 +397,9 @@ contract PacksInitializable is
                 emit Fulfillment(
                     msg.sender,
                     commitId_,
+                    rng,
+                    bucket.oddsBps,
+                    bucketIndex,
                     orderAmount_, // payout amount when NFT fails (full order amount)
                     address(0), // no NFT token address when NFT fails
                     0, // no NFT token ID when NFT fails
@@ -451,6 +425,9 @@ contract PacksInitializable is
             emit Fulfillment(
                 msg.sender,
                 commitId_,
+                rng,
+                bucket.oddsBps,
+                bucketIndex,
                 payoutAmount,
                 address(0), // no NFT token address for payout
                 0, // no NFT token ID for payout
@@ -467,33 +444,39 @@ contract PacksInitializable is
 
     /// @notice Fulfills a commit with the result of the random number generation
     /// @param commitDigest_ Digest of the commit to fulfill
+    /// @param expectedRng_ Expected RNG value
     /// @param marketplace_ Address where the order should be executed
     /// @param orderData_ Calldata for the order execution
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
+    /// @param commitSignature_ Signature used for commit data
     /// @param orderSignature_ Signature used for commit data
     /// @param choice_ Choice made by the receiver
     /// @param choiceSignature_ Signature used for receiver's choice
     /// @dev Emits a Fulfillment event on success
     function fulfillByDigest(
         bytes32 commitDigest_,
+        uint256 expectedRng_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
+        bytes calldata commitSignature_,
         bytes calldata orderSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
     ) public payable whenNotPaused {
         return fulfill(
             commitIdByDigest[commitDigest_],
+            expectedRng_,
             marketplace_,
             orderData_,
             orderAmount_,
             token_,
             tokenId_,
+            commitSignature_,
             orderSignature_,
             choice_,
             choiceSignature_
@@ -533,9 +516,8 @@ contract PacksInitializable is
     /// @param commitId_ ID of the commit to expire
     /// @dev Only callable by the cosigner
     /// @dev Emits a CommitExpired event
-    function expire(uint256 commitId_) external onlyCommitOwnerOrCosigner(commitId_) nonReentrant {
+    function expire(uint256 commitId_) external onlyCommitCosigner(commitId_) nonReentrant {
         if (commitId_ >= packs.length) revert InvalidCommitId();
-        if (isBucketSelected[commitId_]) revert BucketIndexAlreadySelected();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isExpired[commitId_]) revert CommitIsExpired();
         if (block.timestamp < commitExpiresAt[commitId_]) {
