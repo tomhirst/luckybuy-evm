@@ -72,8 +72,8 @@ contract MockPacksInitializable is PacksInitializable {
         isFulfilled[commitId_] = isFulfilled_;
     }
 
-    function setIsExpired(uint256 commitId_, bool isExpired_) public {
-        isExpired[commitId_] = isExpired_;
+    function setIsCancelled(uint256 commitId_, bool isCancelled_) public {
+        isCancelled[commitId_] = isCancelled_;
     }
 }
 
@@ -129,7 +129,7 @@ contract TestPacksInitializable is Test {
         bytes32 digest
     );
 
-    event CommitExpired(uint256 indexed commitId, bytes32 digest);
+    event CommitCancelled(uint256 indexed commitId, bytes32 digest);
     event Withdrawal(address indexed sender, uint256 amount, address feeReceiver);
 
     function setUp() public {
@@ -712,9 +712,9 @@ contract TestPacksInitializable is Test {
         );
     }
 
-    function testExpireCommit() public {
+    function testCancelCommit() public {
         vm.startPrank(admin);
-        packs.setCommitExpireTime(1 days);
+        packs.setCommitCancellableTime(1 days);
         vm.stopPrank();
 
         // Create commit
@@ -732,7 +732,7 @@ contract TestPacksInitializable is Test {
         uint256 initialBalance = user.balance;
         vm.stopPrank();
 
-        // Wait for expiration
+        // Wait for cancellation time
         vm.warp(block.timestamp + 2 days);
 
         // Calculate the actual digest that will be emitted
@@ -750,18 +750,18 @@ contract TestPacksInitializable is Test {
         bytes32 digest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, false, false, true);
-        emit CommitExpired(commitId, digest);
+        emit CommitCancelled(commitId, digest);
 
         vm.prank(cosigner);
-        packs.expire(commitId);
+        packs.cancel(commitId);
 
-        assertTrue(packs.isExpired(commitId));
+        assertTrue(packs.isCancelled(commitId));
         assertEq(user.balance, initialBalance + packPrice);
     }
 
-    function testExpireCommitFromCosigner() public {
+    function testCancelCommitFromCosigner() public {
         vm.startPrank(admin);
-        packs.setCommitExpireTime(1 days);
+        packs.setCommitCancellableTime(1 days);
         vm.stopPrank();
 
         // Create commit
@@ -779,7 +779,7 @@ contract TestPacksInitializable is Test {
         uint256 initialBalance = user.balance;
         vm.stopPrank();
 
-        // Wait for expiration
+        // Wait for cancellation time
         vm.warp(block.timestamp + 2 days);
 
         // Calculate the actual digest that will be emitted
@@ -797,19 +797,19 @@ contract TestPacksInitializable is Test {
         bytes32 digest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, false, false, true);
-        emit CommitExpired(commitId, digest);
+        emit CommitCancelled(commitId, digest);
 
         vm.prank(cosigner);
-        packs.expire(commitId);
+        packs.cancel(commitId);
         vm.stopPrank();
 
-        assertTrue(packs.isExpired(commitId));
+        assertTrue(packs.isCancelled(commitId));
         assertEq(user.balance, initialBalance + packPrice);
     }
 
-    function testExpireCommitNotExpired() public {
+    function testCancelCommitNotCancellable() public {
         vm.startPrank(admin);
-        packs.setCommitExpireTime(1 days);
+        packs.setCommitCancellableTime(1 days);
         vm.stopPrank();
 
         // Create commit
@@ -825,15 +825,15 @@ contract TestPacksInitializable is Test {
         );
         vm.stopPrank();
 
-        // Try to expire before expiration time as cosigner
+        // Try to cancel before cancellation time as cosigner
         vm.prank(cosigner);
-        vm.expectRevert(PacksInitializable.CommitNotExpired.selector);
-        packs.expire(commitId);
+        vm.expectRevert(PacksInitializable.CommitNotCancellable.selector);
+        packs.cancel(commitId);
     }
 
-    function testExpireCommitNotOwner() public {
+    function testCancelCommitNotOwner() public {
         vm.startPrank(admin);
-        packs.setCommitExpireTime(1 days);
+        packs.setCommitCancellableTime(1 days);
         vm.stopPrank();
 
         // Create commit
@@ -849,13 +849,13 @@ contract TestPacksInitializable is Test {
         );
         vm.stopPrank();
 
-        // Wait for expiration
+        // Wait for cancellation time
         vm.warp(block.timestamp + 2 days);
 
-        // Try to expire as non-cosigner
+        // Try to cancel as non-cosigner
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         vm.prank(bob);
-        packs.expire(commitId);
+        packs.cancel(commitId);
     }
 
     function testWithdrawSuccess() public {
@@ -1798,7 +1798,7 @@ contract TestPacksInitializable is Test {
         vm.stopPrank();
     }
 
-    function testCommitExpireTimeSecurity() public {
+    function testCommitCancellableTimeSecurity() public {
         vm.startPrank(user);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -1807,16 +1807,16 @@ contract TestPacksInitializable is Test {
                 bytes32(0) // DEFAULT_ADMIN_ROLE
             )
         );
-        packs.setCommitExpireTime(2 days);
+        packs.setCommitCancellableTime(2 days);
         vm.stopPrank();
 
         vm.startPrank(admin);
-        packs.setCommitExpireTime(2 days);
-        assertEq(packs.commitExpireTime(), 2 days);
+        packs.setCommitCancellableTime(2 days);
+        assertEq(packs.commitCancellableTime(), 2 days);
 
-        // Test minimum expire time
-        vm.expectRevert(PacksInitializable.InvalidCommitExpireTime.selector);
-        packs.setCommitExpireTime(30 seconds); // Less than MIN_COMMIT_EXPIRE_TIME
+        // Test minimum cancellable time
+        vm.expectRevert(PacksInitializable.InvalidCommitCancellableTime.selector);
+        packs.setCommitCancellableTime(30 seconds); // Less than MIN_COMMIT_CANCELLABLE_TIME
         vm.stopPrank();
     }
 

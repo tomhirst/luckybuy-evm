@@ -26,17 +26,17 @@ contract PacksInitializable is
     uint256 public treasuryBalance; // The contract balance
     uint256 public commitBalance; // The open commit balances
 
-    uint256 public commitExpireTime = 10 minutes;
-    mapping(uint256 commitId => uint256 expiresAt) public commitExpiresAt;
-
-    uint256 public constant MIN_COMMIT_EXPIRE_TIME = 1 minutes;
-
+    // Commits are cancellable after time passes unfulfilled
+    uint256 public constant MIN_COMMIT_CANCELLABLE_TIME = 1 minutes;
+    uint256 public commitCancellableTime = 10 minutes;
+    mapping(uint256 commitId => uint256 cancellableAt) public commitCancellableAt;
+    
     bytes32 public constant FEE_RECEIVER_MANAGER_ROLE = keccak256("FEE_RECEIVER_MANAGER_ROLE");
 
     mapping(address cosigner => bool active) public isCosigner;
     mapping(address receiver => uint256 counter) public packCount;
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
-    mapping(uint256 commitId => bool expired) public isExpired;
+    mapping(uint256 commitId => bool cancelled) public isCancelled;
 
     uint256 public payoutBps; // When user selects payout as reward
     uint256 public minReward; // Min ETH reward for a commit (whether it's NFT or payout)
@@ -81,8 +81,8 @@ contract PacksInitializable is
     event Deposit(address indexed sender, uint256 amount);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event MinPackPriceUpdated(uint256 oldMinPackPrice, uint256 newMinPackPrice);
-    event CommitExpireTimeUpdated(uint256 oldCommitExpireTime, uint256 newCommitExpireTime);
-    event CommitExpired(uint256 indexed commitId, bytes32 digest);
+    event CommitCancellableTimeUpdated(uint256 oldCommitCancellableTime, uint256 newCommitCancellableTime);
+    event CommitCancelled(uint256 indexed commitId, bytes32 digest);
     event PayoutBpsUpdated(uint256 oldPayoutBps, uint256 newPayoutBps);
     event FeeReceiverUpdated(address indexed oldFeeReceiver, address indexed newFeeReceiver);
     event FeeReceiverManagerTransferred(address indexed oldFeeReceiverManager, address indexed newFeeReceiverManager);
@@ -101,9 +101,9 @@ contract PacksInitializable is
     error InvalidPackPrice();
     error InvalidCommitId();
     error WithdrawalFailed();
-    error InvalidCommitExpireTime();
-    error CommitIsExpired();
-    error CommitNotExpired();
+    error InvalidCommitCancellableTime();
+    error CommitIsCancelled();
+    error CommitNotCancellable();
     error InvalidPayoutBps();
     error InvalidFeeReceiver();
     error InvalidFeeReceiverManager();
@@ -239,7 +239,7 @@ contract PacksInitializable is
         });
 
         packs.push(commitData);
-        commitExpiresAt[commitId] = block.timestamp + commitExpireTime;
+        commitCancellableAt[commitId] = block.timestamp + commitCancellableTime;
 
         bytes32 digest = hashCommit(commitData);
         commitIdByDigest[digest] = commitId;
@@ -322,7 +322,7 @@ contract PacksInitializable is
         if (msg.value > 0) _depositTreasury(msg.value);
         if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
-        if (isExpired[commitId_]) revert CommitIsExpired();
+        if (isCancelled[commitId_]) revert CommitIsCancelled();
         if (commitId_ >= packs.length) revert InvalidCommitId();
 
         CommitData memory commitData = packs[commitId_];
@@ -512,19 +512,19 @@ contract PacksInitializable is
         emit Withdrawal(msg.sender, currentBalance, feeReceiver);
     }
 
-    /// @notice Allows the cosigner to expire a commit in the event that the commit is not or cannot be fulfilled
-    /// @param commitId_ ID of the commit to expire
-    /// @dev Only callable by the cosigner
-    /// @dev Emits a CommitExpired event
-    function expire(uint256 commitId_) external onlyCommitCosigner(commitId_) nonReentrant {
+    /// @notice Allows the receiver or cosigner to cancel a commit in the event that the commit is not or cannot be fulfilled
+    /// @param commitId_ ID of the commit to cancel
+    /// @dev Only callable by the receiver or cosigner
+    /// @dev Emits a CommitCancelled event
+    function cancel(uint256 commitId_) external onlyCommitCosigner(commitId_) nonReentrant {
         if (commitId_ >= packs.length) revert InvalidCommitId();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
-        if (isExpired[commitId_]) revert CommitIsExpired();
-        if (block.timestamp < commitExpiresAt[commitId_]) {
-            revert CommitNotExpired();
+        if (isCancelled[commitId_]) revert CommitIsCancelled();
+        if (block.timestamp < commitCancellableAt[commitId_]) {
+            revert CommitNotCancellable();
         }
 
-        isExpired[commitId_] = true;
+        isCancelled[commitId_] = true;
 
         CommitData memory commitData = packs[commitId_];
 
@@ -539,7 +539,7 @@ contract PacksInitializable is
             emit TransferFailure(commitId_, commitData.receiver, transferAmount, hashCommit(commitData));
         }
 
-        emit CommitExpired(commitId_, hashCommit(commitData));
+        emit CommitCancelled(commitId_, hashCommit(commitData));
     }
 
     // ############################################################
@@ -632,17 +632,17 @@ contract PacksInitializable is
         emit CosignerRemoved(cosigner_);
     }
 
-    /// @notice Sets the commit expire time.
-    /// @param commitExpireTime_ New commit expire time
+    /// @notice Sets the commit cancellable time.
+    /// @param commitCancellableTime_ New commit cancellable time
     /// @dev Only callable by admin role
-    /// @dev Emits a CommitExpireTimeUpdated event
-    function setCommitExpireTime(uint256 commitExpireTime_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (commitExpireTime_ < MIN_COMMIT_EXPIRE_TIME) {
-            revert InvalidCommitExpireTime();
+    /// @dev Emits a CommitCancellableTimeUpdated event
+    function setCommitCancellableTime(uint256 commitCancellableTime_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (commitCancellableTime_ < MIN_COMMIT_CANCELLABLE_TIME) {
+            revert InvalidCommitCancellableTime();
         }
-        uint256 oldCommitExpireTime = commitExpireTime;
-        commitExpireTime = commitExpireTime_;
-        emit CommitExpireTimeUpdated(oldCommitExpireTime, commitExpireTime_);
+        uint256 oldCommitCancellableTime = commitCancellableTime;
+        commitCancellableTime = commitCancellableTime_;
+        emit CommitCancellableTimeUpdated(oldCommitCancellableTime, commitCancellableTime_);
     }
 
     /// @notice Sets the maximum allowed reward
