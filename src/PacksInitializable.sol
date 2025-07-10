@@ -30,7 +30,7 @@ contract PacksInitializable is
     uint256 public constant MIN_COMMIT_CANCELLABLE_TIME = 1 minutes;
     uint256 public commitCancellableTime = 10 minutes;
     mapping(uint256 commitId => uint256 cancellableAt) public commitCancellableAt;
-    
+   
     bytes32 public constant FEE_RECEIVER_MANAGER_ROLE = keccak256("FEE_RECEIVER_MANAGER_ROLE");
 
     mapping(address cosigner => bool active) public isCosigner;
@@ -113,9 +113,9 @@ contract PacksInitializable is
     error InvalidFulfillmentOption();
     error InvalidRng();
 
-    modifier onlyCommitCosigner(uint256 commitId_) {
-        if (packs[commitId_].cosigner != msg.sender) {
-            revert InvalidCosigner();
+    modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
+        if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
+            revert InvalidCommitOwner();
         }
         _;
     }
@@ -515,8 +515,10 @@ contract PacksInitializable is
     /// @notice Allows the receiver or cosigner to cancel a commit in the event that the commit is not or cannot be fulfilled
     /// @param commitId_ ID of the commit to cancel
     /// @dev Only callable by the receiver or cosigner
+    /// @dev It's safe to allow receiver to call cancel as the commit should be fulfilled within commitCancellableTime
+    /// @dev If not fulfilled before commitCancellableTime, it indicates a fulfillment issue so commit should be refunded
     /// @dev Emits a CommitCancelled event
-    function cancel(uint256 commitId_) external onlyCommitCosigner(commitId_) nonReentrant {
+    function cancel(uint256 commitId_) external onlyCommitOwnerOrCosigner(commitId_) nonReentrant {
         if (commitId_ >= packs.length) revert InvalidCommitId();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isCancelled[commitId_]) revert CommitIsCancelled();
@@ -531,12 +533,10 @@ contract PacksInitializable is
         uint256 commitAmount = commitData.packPrice;
         commitBalance -= commitAmount;
 
-        uint256 transferAmount = commitAmount;
-
-        (bool success,) = payable(commitData.receiver).call{value: transferAmount}("");
+        (bool success,) = payable(commitData.receiver).call{value: commitAmount}("");
         if (!success) {
-            treasuryBalance += transferAmount;
-            emit TransferFailure(commitId_, commitData.receiver, transferAmount, hashCommit(commitData));
+            treasuryBalance += commitAmount;
+            emit TransferFailure(commitId_, commitData.receiver, commitAmount, hashCommit(commitData));
         }
 
         emit CommitCancelled(commitId_, hashCommit(commitData));
