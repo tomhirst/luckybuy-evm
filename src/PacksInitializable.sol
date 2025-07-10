@@ -35,7 +35,7 @@ contract PacksInitializable is
     uint256 public constant MIN_NFT_FULFILLMENT_EXPIRY_TIME = 30 seconds;
     uint256 public nftFulfillmentExpiryTime = 1 minutes;
     mapping(uint256 commitId => uint256 expiresAt) public nftFulfillmentExpiresAt;
-   
+
     bytes32 public constant FEE_RECEIVER_MANAGER_ROLE = keccak256("FEE_RECEIVER_MANAGER_ROLE");
 
     mapping(address cosigner => bool active) public isCosigner;
