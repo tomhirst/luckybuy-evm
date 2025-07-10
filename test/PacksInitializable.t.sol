@@ -1229,6 +1229,110 @@ contract TestPacksInitializable is Test {
         );
     }
 
+    function testRNGDistributionInFulfill() public {
+        // Test that RNG-based bucket selection in fulfill follows expected statistical distribution
+        // Create multiple commits and track bucket selections to validate RNG behavior
+
+        uint256[3] memory bucketCounts;
+        uint256 numTests = 1000;
+
+        // Fund the contract treasury to handle payouts
+        (bool success,) = payable(address(packs)).call{value: 50 ether}("");
+        require(success, "Failed to fund contract");
+
+        for (uint256 i = 0; i < numTests; i++) {
+            // Create commit with different seed for each test
+            vm.startPrank(user);
+            vm.deal(user, packPrice);
+            bytes memory packSignature = signPack(packPrice, bucketsMulti);
+            uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed + i, bucketsMulti, packSignature);
+            vm.stopPrank();
+
+            // Calculate expected RNG and bucket selection
+            bytes memory commitSignature = signCommit(commitId, receiver, seed + i, i, packPrice, bucketsMulti);
+            uint256 rng = prng.rng(commitSignature);
+
+            // Calculate which bucket should be selected based on RNG
+            uint256 bucketIndex = 0;
+            uint256 cumulativeOdds = 0;
+            for (uint256 j = 0; j < bucketsMulti.length; j++) {
+                cumulativeOdds += bucketsMulti[j].oddsBps;
+                if (rng < cumulativeOdds) {
+                    bucketIndex = j;
+                    break;
+                }
+            }
+
+            // Use an order amount that falls within the expected bucket's range
+            uint256 orderAmount;
+            if (bucketIndex == 0) {
+                orderAmount = 0.03 ether; // Within bucket 0 range (0.01-0.05)
+            } else if (bucketIndex == 1) {
+                orderAmount = 0.1 ether; // Within bucket 1 range (0.06-0.15)
+            } else {
+                orderAmount = 0.2 ether; // Within bucket 2 range (0.16-0.25)
+            }
+
+            // Prepare signatures for fulfill
+            bytes memory orderSignature = signOrder(address(0), orderAmount, "", address(0), 0);
+            bytes memory choiceSignature = signChoice(
+                commitId,
+                receiver,
+                seed + i,
+                i,
+                packPrice,
+                bucketsMulti,
+                IPacksSignatureVerifier.FulfillmentOption.Payout
+            );
+
+            // Fulfill the commit - this will internally select the bucket based on RNG
+            packs.fulfill(
+                commitId,
+                rng,
+                address(0),
+                "",
+                orderAmount,
+                address(0),
+                0,
+                commitSignature,
+                orderSignature,
+                IPacksSignatureVerifier.FulfillmentOption.Payout,
+                choiceSignature
+            );
+
+            // Track bucket selections based on the expected bucket
+            bucketCounts[bucketIndex]++;
+        }
+
+        // Basic statistical validation - all buckets should be selected at least once
+        assertTrue(bucketCounts[0] > 0, "Bucket 0 should be selected at least once");
+        assertTrue(bucketCounts[1] > 0, "Bucket 1 should be selected at least once");
+        assertTrue(bucketCounts[2] > 0, "Bucket 2 should be selected at least once");
+
+        // Verify total selections equals number of tests
+        assertEq(
+            bucketCounts[0] + bucketCounts[1] + bucketCounts[2],
+            numTests,
+            "Total selections should equal number of tests"
+        );
+
+        // Verify bucket 1 (50% odds) is selected more frequently than others
+        // This is a basic check that the higher odds bucket gets selected more often
+        assertTrue(
+            bucketCounts[1] >= bucketCounts[0],
+            "Bucket 1 (50% odds) should be selected at least as often as bucket 0 (30% odds)"
+        );
+        assertTrue(
+            bucketCounts[1] >= bucketCounts[2],
+            "Bucket 1 (50% odds) should be selected at least as often as bucket 2 (20% odds)"
+        );
+
+        // Log the distribution for verification
+        console.log("Bucket 0 selections (30% odds):", bucketCounts[0]);
+        console.log("Bucket 1 selections (50% odds):", bucketCounts[1]);
+        console.log("Bucket 2 selections (20% odds):", bucketCounts[2]);
+    }
+
     function testPauseUnpauseSecurity() public {
         // Test that only admin can pause/unpause
         vm.startPrank(user);
