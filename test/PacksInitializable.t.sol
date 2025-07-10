@@ -228,17 +228,7 @@ contract TestPacksInitializable is Test {
         bytes32 expectedDigest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, true, true, true);
-        emit Commit(
-            user,
-            0,
-            receiver,
-            cosigner,
-            seed,
-            0,
-            packPrice,
-            packs.hashPack(packPrice, buckets),
-            expectedDigest
-        );
+        emit Commit(user, 0, receiver, cosigner, seed, 0, packPrice, packs.hashPack(packPrice, buckets), expectedDigest);
 
         uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, signature);
 
@@ -516,7 +506,7 @@ contract TestPacksInitializable is Test {
             commitId,
             0, // no payout amount for NFT fulfillment
             token,
-            tokenId, 
+            tokenId,
             orderAmount,
             receiver, // receiver
             cosigner, // choiceSigner is the cosigner
