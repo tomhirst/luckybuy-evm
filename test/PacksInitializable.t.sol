@@ -968,7 +968,6 @@ contract TestPacksInitializable is Test {
             buckets: buckets,
             packHash: packs.hashPack(packPrice, buckets)
         });
-        bytes32 digest = packs.hashCommit(commitData);
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
