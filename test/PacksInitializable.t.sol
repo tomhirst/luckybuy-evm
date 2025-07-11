@@ -85,8 +85,8 @@ contract TestPacksInitializable is Test {
     address receiver = address(0x3);
     uint256 constant COSIGNER_PRIVATE_KEY = 1234;
     address cosigner = vm.addr(COSIGNER_PRIVATE_KEY);
-    address feeReceiverManager = address(0x4);
-    address feeReceiver = address(0x5);
+    address fundsReceiverManager = address(0x4);
+    address fundsReceiver = address(0x5);
 
     uint256 seed = 12345;
     uint256 packPrice = 0.1 ether;
@@ -131,7 +131,9 @@ contract TestPacksInitializable is Test {
     );
 
     event CommitCancelled(uint256 indexed commitId, bytes32 digest);
-    event Withdrawal(address indexed sender, uint256 amount, address feeReceiver);
+    event TreasuryWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
+    event PackRevenueWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
+    event EmergencyWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
 
     function setUp() public {
         vm.startPrank(admin);
@@ -142,7 +144,7 @@ contract TestPacksInitializable is Test {
 
         // Encode initializer call
         bytes memory initData = abi.encodeWithSignature(
-            "initialize(address,address,address,address)", admin, feeReceiver, address(prng), feeReceiverManager
+            "initialize(address,address,address,address)", admin, fundsReceiver, address(prng), fundsReceiverManager
         );
 
         // Deploy proxy
@@ -188,9 +190,9 @@ contract TestPacksInitializable is Test {
         assertTrue(packs.hasRole(DEFAULT_ADMIN_ROLE, admin));
         assertTrue(packs.hasRole(OPS_ROLE, admin));
 
-        assertEq(packs.feeReceiver(), feeReceiver);
+        assertEq(packs.fundsReceiver(), fundsReceiver);
         assertEq(address(packs.PRNG()), address(prng));
-        assertTrue(packs.hasRole(packs.FEE_RECEIVER_MANAGER_ROLE(), feeReceiverManager));
+        assertTrue(packs.hasRole(packs.FUNDS_RECEIVER_MANAGER_ROLE(), fundsReceiverManager));
 
         // Check default values
         assertEq(packs.payoutBps(), 9000);
@@ -204,7 +206,7 @@ contract TestPacksInitializable is Test {
         vm.prank(admin);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         MockPacksInitializable(payable(address(packs))).initialize(
-            admin, feeReceiver, address(prng), feeReceiverManager
+            admin, fundsReceiver, address(prng), fundsReceiverManager
         );
     }
 
@@ -924,28 +926,95 @@ contract TestPacksInitializable is Test {
         packs.cancel(commitId);
     }
 
-    function testWithdrawSuccess() public {
+    function testWithdrawTreasurySuccess() public {
         uint256 withdrawAmount = 1 ether;
         // Fund the treasury properly by sending ETH to the contract
         vm.deal(address(this), withdrawAmount);
         (bool success,) = payable(address(packs)).call{value: withdrawAmount}("");
         require(success, "Failed to fund contract");
 
-        uint256 initialBalance = feeReceiver.balance;
+        uint256 initialBalance = fundsReceiver.balance;
 
         vm.expectEmit(true, false, false, true);
-        emit Withdrawal(admin, withdrawAmount, feeReceiver);
+        emit TreasuryWithdrawal(admin, withdrawAmount, fundsReceiver);
 
         vm.prank(admin);
-        packs.withdraw(withdrawAmount);
+        packs.withdrawTreasury(withdrawAmount);
 
-        assertEq(feeReceiver.balance, initialBalance + withdrawAmount);
+        assertEq(fundsReceiver.balance, initialBalance + withdrawAmount);
     }
 
-    function testWithdrawInsufficientBalance() public {
+    function testWithdrawPackRevenueSuccess() public {
+        // commit a pack
+        vm.startPrank(user);
+        vm.deal(user, packPrice);
+        bytes memory packSignature = signPack(packPrice, buckets);
+        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, buckets, packSignature);
+        vm.stopPrank();
+
+        // Calculate RNG and bucket selection
+        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
+        uint256 rng = prng.rng(commitSignature);
+
+        // Calculate the commit digest
+        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+            id: commitId,
+            receiver: receiver,
+            cosigner: cosigner,
+            seed: seed,
+            counter: 0,
+            packPrice: packPrice,
+            payoutBps: packs.payoutBps(),
+            buckets: buckets,
+            packHash: packs.hashPack(packPrice, buckets)
+        });
+        bytes32 digest = packs.hashCommit(commitData);
+
+        uint256 orderAmount = 0.03 ether;
+        bytes memory orderSignature =
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+        bytes memory choiceSignature = signChoice(
+            commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
+        );
+
+        // Call fulfill with some ETH value to fund the treasury
+        packs.fulfill{value: 10 ether}(
+            commitId,
+            rng,
+            address(0),
+            "",
+            orderAmount,
+            address(0),
+            0,
+            commitSignature,
+            orderSignature,
+            IPacksSignatureVerifier.FulfillmentOption.Payout,
+            choiceSignature
+        );
+
+        uint256 initialBalance = fundsReceiver.balance;
+        uint256 initialPackRevenueBalance = packs.packRevenueBalance();
+
+        vm.expectEmit(true, false, false, true);
+        emit PackRevenueWithdrawal(admin, packPrice, fundsReceiver);
+
+        vm.prank(admin);
+        packs.withdrawPackRevenue(packPrice);
+
+        assertEq(fundsReceiver.balance, initialBalance + packPrice);
+        assertEq(packs.packRevenueBalance(), 0);
+    }
+
+    function testWithdrawTreasuryInsufficientBalance() public {
         vm.expectRevert(PacksInitializable.InsufficientBalance.selector);
         vm.prank(admin);
-        packs.withdraw(1 ether);
+        packs.withdrawTreasury(1 ether);
+    }
+
+    function testWithdrawPackRevenueInsufficientBalance() public {
+        vm.expectRevert(PacksInitializable.InsufficientBalance.selector);
+        vm.prank(admin);
+        packs.withdrawPackRevenue(1 ether);
     }
 
     function testEmergencyWithdraw() public {
@@ -958,12 +1027,12 @@ contract TestPacksInitializable is Test {
         vm.deal(address(packs), address(packs).balance + 5 ether);
         vm.stopPrank();
 
-        uint256 initialBalance = feeReceiver.balance;
+        uint256 initialBalance = fundsReceiver.balance;
 
         vm.prank(admin);
         packs.emergencyWithdraw();
 
-        assertEq(feeReceiver.balance, initialBalance + 5 ether + packPrice);
+        assertEq(fundsReceiver.balance, initialBalance + 5 ether + packPrice);
         assertTrue(packs.paused());
     }
 
@@ -1392,7 +1461,7 @@ contract TestPacksInitializable is Test {
         uint256 numTests = 1000;
 
         // Fund the contract treasury to handle payouts
-        (bool success,) = payable(address(packs)).call{value: 50 ether}("");
+        (bool success,) = payable(address(packs)).call{value: 100 ether}("");
         require(success, "Failed to fund contract");
 
         for (uint256 i = 0; i < numTests; i++) {
@@ -1606,46 +1675,46 @@ contract TestPacksInitializable is Test {
         vm.stopPrank();
     }
 
-    function testFeeReceiverManagerSecurity() public {
-        address newFeeReceiverManager = address(0x8);
-        address newFeeReceiver = address(0x9);
+    function testfundsReceiverManagerSecurity() public {
+        address newfundsReceiverManager = address(0x8);
+        address newfundsReceiver = address(0x9);
 
-        // Test that only fee receiver manager can transfer role
+        // Test that only funds receiver manager can transfer role
         vm.startPrank(admin);
         vm.expectRevert();
-        packs.transferFeeReceiverManager(newFeeReceiverManager);
+        packs.transferFundsReceiverManager(newfundsReceiverManager);
         vm.stopPrank();
 
-        // Test that only fee receiver manager can set fee receiver
+        // Test that only funds receiver manager can set funds receiver
         vm.startPrank(admin);
         vm.expectRevert();
-        packs.setFeeReceiver(newFeeReceiver);
+        packs.setFundsReceiver(newfundsReceiver);
         vm.stopPrank();
 
-        // Test that fee receiver manager can transfer role
-        vm.startPrank(feeReceiverManager);
-        packs.transferFeeReceiverManager(newFeeReceiverManager);
+        // Test that funds receiver manager can transfer role
+        vm.startPrank(fundsReceiverManager);
+        packs.transferFundsReceiverManager(newfundsReceiverManager);
         vm.stopPrank();
 
-        // Test that new fee receiver manager can set fee receiver
-        vm.startPrank(newFeeReceiverManager);
-        packs.setFeeReceiver(newFeeReceiver);
+        // Test that new funds receiver manager can set funds receiver
+        vm.startPrank(newfundsReceiverManager);
+        packs.setFundsReceiver(newfundsReceiver);
         vm.stopPrank();
 
-        assertEq(packs.feeReceiver(), newFeeReceiver);
+        assertEq(packs.fundsReceiver(), newfundsReceiver);
     }
 
-    function testInvalidFeeReceiverManager() public {
-        vm.startPrank(feeReceiverManager);
-        vm.expectRevert(PacksInitializable.InvalidFeeReceiverManager.selector);
-        packs.transferFeeReceiverManager(address(0));
+    function testInvalidFundsReceiverManager() public {
+        vm.startPrank(fundsReceiverManager);
+        vm.expectRevert(PacksInitializable.InvalidFundsReceiverManager.selector);
+        packs.transferFundsReceiverManager(address(0));
         vm.stopPrank();
     }
 
-    function testInvalidFeeReceiver() public {
-        vm.startPrank(feeReceiverManager);
-        vm.expectRevert(PacksInitializable.InvalidFeeReceiver.selector);
-        packs.setFeeReceiver(address(0));
+    function testInvalidFundsReceiver() public {
+        vm.startPrank(fundsReceiverManager);
+        vm.expectRevert(PacksInitializable.InvalidFundsReceiver.selector);
+        packs.setFundsReceiver(address(0));
         vm.stopPrank();
     }
 

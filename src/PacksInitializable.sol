@@ -18,7 +18,7 @@ contract PacksInitializable is
     TokenRescuer
 {
     IPRNG public PRNG;
-    address payable public feeReceiver;
+    address payable public fundsReceiver;
 
     CommitData[] public packs;
     mapping(bytes32 commitDigest => uint256 commitId) public commitIdByDigest;
@@ -37,7 +37,7 @@ contract PacksInitializable is
     uint256 public nftFulfillmentExpiryTime = 1 minutes;
     mapping(uint256 commitId => uint256 expiresAt) public nftFulfillmentExpiresAt;
 
-    bytes32 public constant FEE_RECEIVER_MANAGER_ROLE = keccak256("FEE_RECEIVER_MANAGER_ROLE");
+    bytes32 public constant FUNDS_RECEIVER_MANAGER_ROLE = keccak256("FUNDS_RECEIVER_MANAGER_ROLE");
 
     mapping(address cosigner => bool active) public isCosigner;
     mapping(address receiver => uint256 counter) public packCount;
@@ -85,17 +85,17 @@ contract PacksInitializable is
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
     event MaxPackPriceUpdated(uint256 oldMaxPackPrice, uint256 newMaxPackPrice);
     event TreasuryDeposit(address indexed sender, uint256 amount);
-    event TreasuryWithdrawal(address indexed sender, uint256 amount, address feeReceiver);
-    event PackRevenueWithdrawal(address indexed sender, uint256 amount, address feeReceiver);
-    event EmergencyWithdrawal(address indexed sender, uint256 amount, address feeReceiver);
+    event TreasuryWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
+    event PackRevenueWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
+    event EmergencyWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event MinPackPriceUpdated(uint256 oldMinPackPrice, uint256 newMinPackPrice);
     event CommitCancellableTimeUpdated(uint256 oldCommitCancellableTime, uint256 newCommitCancellableTime);
     event NftFulfillmentExpiryTimeUpdated(uint256 oldNftFulfillmentExpiryTime, uint256 newNftFulfillmentExpiryTime);
     event CommitCancelled(uint256 indexed commitId, bytes32 digest);
     event PayoutBpsUpdated(uint256 oldPayoutBps, uint256 newPayoutBps);
-    event FeeReceiverUpdated(address indexed oldFeeReceiver, address indexed newFeeReceiver);
-    event FeeReceiverManagerTransferred(address indexed oldFeeReceiverManager, address indexed newFeeReceiverManager);
+    event FundsReceiverUpdated(address indexed oldFundsReceiver, address indexed newFundsReceiver);
+    event FundsReceiverManagerTransferred(address indexed oldFundsReceiverManager, address indexed newFundsReceiverManager);
     event TransferFailure(uint256 indexed commitId, address indexed receiver, uint256 amount, bytes32 digest);
 
     error AlreadyCosigner();
@@ -116,8 +116,8 @@ contract PacksInitializable is
     error CommitIsCancelled();
     error CommitNotCancellable();
     error InvalidPayoutBps();
-    error InvalidFeeReceiver();
-    error InvalidFeeReceiverManager();
+    error InvalidFundsReceiver();
+    error InvalidFundsReceiverManager();
     error InitialOwnerCannotBeZero();
     error NewImplementationCannotBeZero();
     error BucketSelectionFailed();
@@ -138,7 +138,7 @@ contract PacksInitializable is
 
     /// @notice Initializes the contract and handles any pre-existing balance
     /// @dev Sets up EIP712 domain separator and deposits any ETH sent during deployment
-    function initialize(address initialOwner_, address feeReceiver_, address prng_, address feeReceiverManager_)
+    function initialize(address initialOwner_, address FundsReceiver_, address prng_, address FundsReceiverManager_)
         public
         initializer
     {
@@ -154,9 +154,9 @@ contract PacksInitializable is
             _depositTreasury(existingBalance);
         }
 
-        _setFeeReceiver(feeReceiver_);
+        _setFundsReceiver(FundsReceiver_);
         PRNG = IPRNG(prng_);
-        _grantRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiverManager_);
+        _grantRole(FUNDS_RECEIVER_MANAGER_ROLE, FundsReceiverManager_);
 
         // Initialize reward limits
         payoutBps = 9000;
@@ -512,10 +512,10 @@ contract PacksInitializable is
         if (amount > treasuryBalance) revert InsufficientBalance();
         treasuryBalance -= amount;
 
-        (bool success,) = payable(feeReceiver).call{value: amount}("");
+        (bool success,) = payable(fundsReceiver).call{value: amount}("");
         if (!success) revert WithdrawalFailed();
 
-        emit TreasuryWithdrawal(msg.sender, amount, feeReceiver);
+        emit TreasuryWithdrawal(msg.sender, amount, fundsReceiver);
     }
 
     /// @notice Allows the admin to withdraw pack revenue
@@ -525,9 +525,9 @@ contract PacksInitializable is
     function withdrawPackRevenue(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         if (amount > packRevenueBalance) revert InsufficientBalance();
         packRevenueBalance -= amount;
-        (bool success,) = payable(feeReceiver).call{value: amount}("");
+        (bool success,) = payable(fundsReceiver).call{value: amount}("");
         if (!success) revert WithdrawalFailed();
-        emit PackRevenueWithdrawal(msg.sender, amount, feeReceiver);
+        emit PackRevenueWithdrawal(msg.sender, amount, fundsReceiver);
     }
 
     /// @notice Allows the admin to withdraw all ETH from the contract
@@ -540,10 +540,10 @@ contract PacksInitializable is
 
         uint256 currentBalance = address(this).balance;
 
-        _rescueETH(feeReceiver, currentBalance);
+        _rescueETH(fundsReceiver, currentBalance);
 
         _pause();
-        emit EmergencyWithdrawal(msg.sender, currentBalance, feeReceiver);
+        emit EmergencyWithdrawal(msg.sender, currentBalance, fundsReceiver);
     }
 
     /// @notice Allows the receiver or cosigner to cancel a commit in the event that the commit is not or cannot be fulfilled
@@ -813,40 +813,40 @@ contract PacksInitializable is
         (success,) = to.call{value: amount}(data);
     }
 
-    /// @notice Transfers the fee receiver manager role
-    /// @param newFeeReceiverManager_ New fee receiver manager
-    /// @dev Only callable by fee receiver manager role
-    function transferFeeReceiverManager(address newFeeReceiverManager_) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
-        if (newFeeReceiverManager_ == address(0)) {
-            revert InvalidFeeReceiverManager();
+    /// @notice Transfers the funds receiver manager role
+    /// @param newFundsReceiverManager_ New funds receiver manager
+    /// @dev Only callable by funds receiver manager role
+    function transferFundsReceiverManager(address newFundsReceiverManager_) external onlyRole(FUNDS_RECEIVER_MANAGER_ROLE) {
+        if (newFundsReceiverManager_ == address(0)) {
+            revert InvalidFundsReceiverManager();
         }
-        _transferFeeReceiverManager(newFeeReceiverManager_);
+        _transferFundsReceiverManager(newFundsReceiverManager_);
     }
 
-    /// @notice Transfers the fee receiver manager role
-    /// @param newFeeReceiverManager_ New fee receiver manager
-    function _transferFeeReceiverManager(address newFeeReceiverManager_) internal {
-        _revokeRole(FEE_RECEIVER_MANAGER_ROLE, msg.sender);
-        _grantRole(FEE_RECEIVER_MANAGER_ROLE, newFeeReceiverManager_);
-        emit FeeReceiverManagerTransferred(msg.sender, newFeeReceiverManager_);
+    /// @notice Transfers the funds receiver manager role
+    /// @param newFundsReceiverManager_ New funds receiver manager
+    function _transferFundsReceiverManager(address newFundsReceiverManager_) internal {
+        _revokeRole(FUNDS_RECEIVER_MANAGER_ROLE, msg.sender);
+        _grantRole(FUNDS_RECEIVER_MANAGER_ROLE, newFundsReceiverManager_);
+        emit FundsReceiverManagerTransferred(msg.sender, newFundsReceiverManager_);
     }
 
-    /// @notice Sets the fee receiver
-    /// @param feeReceiver_ Address to set as fee receiver
-    /// @dev Only callable by fee receiver manager role
-    function setFeeReceiver(address feeReceiver_) external onlyRole(FEE_RECEIVER_MANAGER_ROLE) {
-        _setFeeReceiver(feeReceiver_);
+    /// @notice Sets the funds receiver
+    /// @param FundsReceiver_ Address to set as funds receiver
+    /// @dev Only callable by funds receiver manager role
+    function setFundsReceiver(address FundsReceiver_) external onlyRole(FUNDS_RECEIVER_MANAGER_ROLE) {
+        _setFundsReceiver(FundsReceiver_);
     }
 
-    /// @notice Sets the fee receiver
-    /// @param feeReceiver_ Address to set as fee receiver
-    function _setFeeReceiver(address feeReceiver_) internal {
-        if (feeReceiver_ == address(0)) revert InvalidFeeReceiver();
-        if (hasRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiver_)) {
-            revert InvalidFeeReceiverManager();
+    /// @notice Sets the funds receiver
+    /// @param FundsReceiver_ Address to set as funds receiver
+    function _setFundsReceiver(address FundsReceiver_) internal {
+        if (FundsReceiver_ == address(0)) revert InvalidFundsReceiver();
+        if (hasRole(FUNDS_RECEIVER_MANAGER_ROLE, FundsReceiver_)) {
+            revert InvalidFundsReceiverManager();
         }
-        address oldFeeReceiver = feeReceiver;
-        feeReceiver = payable(feeReceiver_);
-        emit FeeReceiverUpdated(oldFeeReceiver, feeReceiver_);
+        address oldFundsReceiver = fundsReceiver;
+        fundsReceiver = payable(FundsReceiver_);
+        emit FundsReceiverUpdated(oldFundsReceiver, FundsReceiver_);
     }
 }
