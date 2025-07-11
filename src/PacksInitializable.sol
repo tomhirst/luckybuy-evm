@@ -26,7 +26,7 @@ contract PacksInitializable is
     uint256 public treasuryBalance; // The operational balance
     uint256 public commitBalance; // The open commit balance
     uint256 public packRevenueBalance; // The pack revenue balance
-    
+
     // Commits are cancellable after time passes unfulfilled
     uint256 public constant MIN_COMMIT_CANCELLABLE_TIME = 1 minutes;
     uint256 public commitCancellableTime = 10 minutes;
@@ -95,7 +95,9 @@ contract PacksInitializable is
     event CommitCancelled(uint256 indexed commitId, bytes32 digest);
     event PayoutBpsUpdated(uint256 oldPayoutBps, uint256 newPayoutBps);
     event FundsReceiverUpdated(address indexed oldFundsReceiver, address indexed newFundsReceiver);
-    event FundsReceiverManagerTransferred(address indexed oldFundsReceiverManager, address indexed newFundsReceiverManager);
+    event FundsReceiverManagerTransferred(
+        address indexed oldFundsReceiverManager, address indexed newFundsReceiverManager
+    );
     event TransferFailure(uint256 indexed commitId, address indexed receiver, uint256 amount, bytes32 digest);
 
     error AlreadyCosigner();
@@ -816,7 +818,10 @@ contract PacksInitializable is
     /// @notice Transfers the funds receiver manager role
     /// @param newFundsReceiverManager_ New funds receiver manager
     /// @dev Only callable by funds receiver manager role
-    function transferFundsReceiverManager(address newFundsReceiverManager_) external onlyRole(FUNDS_RECEIVER_MANAGER_ROLE) {
+    function transferFundsReceiverManager(address newFundsReceiverManager_)
+        external
+        onlyRole(FUNDS_RECEIVER_MANAGER_ROLE)
+    {
         if (newFundsReceiverManager_ == address(0)) {
             revert InvalidFundsReceiverManager();
         }
