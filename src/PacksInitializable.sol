@@ -23,9 +23,10 @@ contract PacksInitializable is
     CommitData[] public packs;
     mapping(bytes32 commitDigest => uint256 commitId) public commitIdByDigest;
 
-    uint256 public treasuryBalance; // The contract balance
-    uint256 public commitBalance; // The open commit balances
-
+    uint256 public treasuryBalance; // The operational balance
+    uint256 public commitBalance; // The open commit balance
+    uint256 public packRevenueBalance; // The pack revenue balance
+    
     // Commits are cancellable after time passes unfulfilled
     uint256 public constant MIN_COMMIT_CANCELLABLE_TIME = 1 minutes;
     uint256 public commitCancellableTime = 10 minutes;
@@ -373,9 +374,8 @@ contract PacksInitializable is
         // Mark the commit as fulfilled
         isFulfilled[commitId_] = true;
 
-        // Collect the commit balance
-        // Transfer the commit balance to the contract
-        treasuryBalance += commitData.packPrice;
+        // Collect the commit balance as pack revenue
+        packRevenueBalance += commitData.packPrice;
         commitBalance -= commitData.packPrice;
 
         // Handle user choice and fulfil order or payout
@@ -383,7 +383,7 @@ contract PacksInitializable is
             // execute the market data to transfer the nft
             bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
             if (success) {
-                // subtract the order amount from the contract balance
+                // subtract the order amount from the treasury balance
                 treasuryBalance -= orderAmount_;
                 // emit a success transfer for the nft
                 emit Fulfillment(
@@ -502,11 +502,23 @@ contract PacksInitializable is
         );
     }
 
+    /// @notice Allows the admin to withdraw pack revenue
+    /// @param amount The amount of pack revenue to withdraw
+    /// @dev Only callable by admin role
+    /// @dev Emits a Withdrawal event
+    function withdrawPackRevenue(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (amount > packRevenueBalance) revert InsufficientBalance();
+        packRevenueBalance -= amount;
+        (bool success,) = payable(feeReceiver).call{value: amount}("");
+        if (!success) revert WithdrawalFailed();
+        emit Withdrawal(msg.sender, amount, feeReceiver);
+    }
+
     /// @notice Allows the admin to withdraw ETH from the contract balance
     /// @param amount The amount of ETH to withdraw
     /// @dev Only callable by admin role
     /// @dev Emits a Withdrawal event
-    function withdraw(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
+    function withdrawTreasury(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         if (amount > treasuryBalance) revert InsufficientBalance();
         treasuryBalance -= amount;
 
@@ -522,6 +534,7 @@ contract PacksInitializable is
     function emergencyWithdraw() external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         treasuryBalance = 0;
         commitBalance = 0;
+        packRevenueBalance = 0;
 
         uint256 currentBalance = address(this).balance;
 
@@ -554,7 +567,7 @@ contract PacksInitializable is
 
         (bool success,) = payable(commitData.receiver).call{value: commitAmount}("");
         if (!success) {
-            treasuryBalance += commitAmount;
+            packRevenueBalance += commitAmount;
             emit TransferFailure(commitId_, commitData.receiver, commitAmount, hashCommit(commitData));
         }
 
