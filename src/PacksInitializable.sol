@@ -140,7 +140,7 @@ contract PacksInitializable is
 
     /// @notice Initializes the contract and handles any pre-existing balance
     /// @dev Sets up EIP712 domain separator and deposits any ETH sent during deployment
-    function initialize(address initialOwner_, address FundsReceiver_, address prng_, address FundsReceiverManager_)
+    function initialize(address initialOwner_, address fundsReceiver_, address prng_, address fundsReceiverManager_)
         public
         initializer
     {
@@ -156,9 +156,9 @@ contract PacksInitializable is
             _depositTreasury(existingBalance);
         }
 
-        _setFundsReceiver(FundsReceiver_);
+        _setFundsReceiver(fundsReceiver_);
         PRNG = IPRNG(prng_);
-        _grantRole(FUNDS_RECEIVER_MANAGER_ROLE, FundsReceiverManager_);
+        _grantRole(FUNDS_RECEIVER_MANAGER_ROLE, fundsReceiverManager_);
 
         // Initialize reward limits
         payoutBps = 9000;
@@ -837,21 +837,21 @@ contract PacksInitializable is
     }
 
     /// @notice Sets the funds receiver
-    /// @param FundsReceiver_ Address to set as funds receiver
+    /// @param fundsReceiver_ Address to set as funds receiver
     /// @dev Only callable by funds receiver manager role
-    function setFundsReceiver(address FundsReceiver_) external onlyRole(FUNDS_RECEIVER_MANAGER_ROLE) {
-        _setFundsReceiver(FundsReceiver_);
+    function setFundsReceiver(address fundsReceiver_) external onlyRole(FUNDS_RECEIVER_MANAGER_ROLE) {
+        _setFundsReceiver(fundsReceiver_);
     }
 
     /// @notice Sets the funds receiver
-    /// @param FundsReceiver_ Address to set as funds receiver
-    function _setFundsReceiver(address FundsReceiver_) internal {
-        if (FundsReceiver_ == address(0)) revert InvalidFundsReceiver();
-        if (hasRole(FUNDS_RECEIVER_MANAGER_ROLE, FundsReceiver_)) {
+    /// @param fundsReceiver_ Address to set as funds receiver
+    function _setFundsReceiver(address fundsReceiver_) internal {
+        if (fundsReceiver_ == address(0)) revert InvalidFundsReceiver();
+        if (hasRole(FUNDS_RECEIVER_MANAGER_ROLE, fundsReceiver_)) {
             revert InvalidFundsReceiverManager();
         }
         address oldFundsReceiver = fundsReceiver;
-        fundsReceiver = payable(FundsReceiver_);
-        emit FundsReceiverUpdated(oldFundsReceiver, FundsReceiver_);
+        fundsReceiver = payable(fundsReceiver_);
+        emit FundsReceiverUpdated(oldFundsReceiver, fundsReceiver_);
     }
 }
