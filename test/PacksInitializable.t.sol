@@ -993,8 +993,6 @@ contract TestPacksInitializable is Test {
         );
 
         uint256 initialBalance = fundsReceiver.balance;
-        uint256 initialPackRevenueBalance = packs.packRevenueBalance();
-
         vm.expectEmit(true, false, false, true);
         emit PackRevenueWithdrawal(admin, packPrice, fundsReceiver);
 
