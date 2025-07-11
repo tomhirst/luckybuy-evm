@@ -84,8 +84,10 @@ contract PacksInitializable is
     event CosignerRemoved(address indexed cosigner);
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
     event MaxPackPriceUpdated(uint256 oldMaxPackPrice, uint256 newMaxPackPrice);
-    event Withdrawal(address indexed sender, uint256 amount, address feeReceiver);
-    event Deposit(address indexed sender, uint256 amount);
+    event TreasuryDeposit(address indexed sender, uint256 amount);
+    event TreasuryWithdrawal(address indexed sender, uint256 amount, address feeReceiver);
+    event PackRevenueWithdrawal(address indexed sender, uint256 amount, address feeReceiver);
+    event EmergencyWithdrawal(address indexed sender, uint256 amount, address feeReceiver);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event MinPackPriceUpdated(uint256 oldMinPackPrice, uint256 newMinPackPrice);
     event CommitCancellableTimeUpdated(uint256 oldCommitCancellableTime, uint256 newCommitCancellableTime);
@@ -502,19 +504,7 @@ contract PacksInitializable is
         );
     }
 
-    /// @notice Allows the admin to withdraw pack revenue
-    /// @param amount The amount of pack revenue to withdraw
-    /// @dev Only callable by admin role
-    /// @dev Emits a Withdrawal event
-    function withdrawPackRevenue(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (amount > packRevenueBalance) revert InsufficientBalance();
-        packRevenueBalance -= amount;
-        (bool success,) = payable(feeReceiver).call{value: amount}("");
-        if (!success) revert WithdrawalFailed();
-        emit Withdrawal(msg.sender, amount, feeReceiver);
-    }
-
-    /// @notice Allows the admin to withdraw ETH from the contract balance
+    /// @notice Allows the admin to withdraw ETH from the treasury balance
     /// @param amount The amount of ETH to withdraw
     /// @dev Only callable by admin role
     /// @dev Emits a Withdrawal event
@@ -525,7 +515,19 @@ contract PacksInitializable is
         (bool success,) = payable(feeReceiver).call{value: amount}("");
         if (!success) revert WithdrawalFailed();
 
-        emit Withdrawal(msg.sender, amount, feeReceiver);
+        emit TreasuryWithdrawal(msg.sender, amount, feeReceiver);
+    }
+
+    /// @notice Allows the admin to withdraw pack revenue
+    /// @param amount The amount of pack revenue to withdraw
+    /// @dev Only callable by admin role
+    /// @dev Emits a Withdrawal event
+    function withdrawPackRevenue(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (amount > packRevenueBalance) revert InsufficientBalance();
+        packRevenueBalance -= amount;
+        (bool success,) = payable(feeReceiver).call{value: amount}("");
+        if (!success) revert WithdrawalFailed();
+        emit PackRevenueWithdrawal(msg.sender, amount, feeReceiver);
     }
 
     /// @notice Allows the admin to withdraw all ETH from the contract
@@ -541,7 +543,7 @@ contract PacksInitializable is
         _rescueETH(feeReceiver, currentBalance);
 
         _pause();
-        emit Withdrawal(msg.sender, currentBalance, feeReceiver);
+        emit EmergencyWithdrawal(msg.sender, currentBalance, feeReceiver);
     }
 
     /// @notice Allows the receiver or cosigner to cancel a commit in the event that the commit is not or cannot be fulfilled
@@ -754,7 +756,7 @@ contract PacksInitializable is
     /// @param amount Amount of ETH to deposit
     function _depositTreasury(uint256 amount) internal {
         treasuryBalance += amount;
-        emit Deposit(msg.sender, amount);
+        emit TreasuryDeposit(msg.sender, amount);
     }
 
     /// @notice Pauses the contract
