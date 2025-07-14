@@ -23,6 +23,12 @@ Packs is similar to LuckyBuy, with the key differences being:
 - RNG result is presented pre-fulfill and verified on fulfill (safe because the seed is deterministic post-commit)
 - Users' have the ability to make a choice from two fulfillment options (take NFT or take cash value reward)
 
+## Implementation & Security Notes
+
+- If an allowlisted cosigner becomes compromised everything is compromised
+- An alternate 3 step commit, selectBucketIndex, fulfill flow was considered but the cost + play speed UX of 2 txs won out
+- User commit cancellation with reward pre-presented should be safe because we can expect a fullfillable commit to be fulfilled within the commitCancellableAt timeframe (default 24 hours)
+
 ## Deployment
 
 Packs uses the [ERC1967](https://docs.openzeppelin.com/contracts/5.x/api/proxy#ERC1967Proxy) proxy implementation pattern, meaning the contract is upgradeable.
