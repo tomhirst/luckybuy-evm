@@ -21,7 +21,7 @@ Packs is similar to LuckyBuy, with the key differences being:
 
 - Order data can not be known in advance (because bucket value range is static, while NFT prices are dynamic)
 - RNG result is presented pre-fulfill and verified on fulfill (safe because the seed is deterministic post-commit)
-- Users' have the ability to make a choice from a two fulfillment options (take NFT or take cash value reward)
+- Users' have the ability to make a choice from two fulfillment options (take NFT or take cash value reward)
 
 ## Deployment
 
