@@ -29,12 +29,12 @@ contract PacksInitializable is
 
     // Commits are cancellable after time passes unfulfilled
     uint256 public constant MIN_COMMIT_CANCELLABLE_TIME = 1 hours;
-    uint256 public commitCancellableTime = 1 days;
+    uint256 public commitCancellableTime;
     mapping(uint256 commitId => uint256 cancellableAt) public commitCancellableAt;
 
     // NFT fulfillment option expires after a short time
     uint256 public constant MIN_NFT_FULFILLMENT_EXPIRY_TIME = 30 seconds;
-    uint256 public nftFulfillmentExpiryTime = 2 minutes;
+    uint256 public nftFulfillmentExpiryTime;
     mapping(uint256 commitId => uint256 expiresAt) public nftFulfillmentExpiresAt;
 
     bytes32 public constant FUNDS_RECEIVER_MANAGER_ROLE = keccak256("FUNDS_RECEIVER_MANAGER_ROLE");
@@ -167,6 +167,10 @@ contract PacksInitializable is
 
         minPackPrice = 0.01 ether;
         maxPackPrice = 0.25 ether;
+
+        // Initialize expiries
+        commitCancellableTime = 1 days;
+        nftFulfillmentExpiryTime = 2 minutes;
     }
 
     /// @dev Overriden to prevent unauthorized upgrades.
