@@ -170,7 +170,7 @@ contract PacksInitializable is
 
         // Initialize expiries
         commitCancellableTime = 1 days;
-        nftFulfillmentExpiryTime = 2 minutes;
+        nftFulfillmentExpiryTime = 10 minutes;
     }
 
     /// @dev Overriden to prevent unauthorized upgrades.
