@@ -719,11 +719,9 @@ contract PacksInitializable is
     /// @dev Only callable by admin role
     function setMinReward(uint256 minReward_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (minReward_ > maxReward) revert InvalidReward();
-        if (minReward_ < minReward) revert InvalidReward();
 
         uint256 oldMinReward = minReward;
         minReward = minReward_;
-
         emit MinRewardUpdated(oldMinReward, minReward_);
     }
 
