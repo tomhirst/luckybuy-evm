@@ -290,7 +290,6 @@ contract PacksInitializable is
 
     /// @notice Fulfills a commit with the result of the random number generation
     /// @param commitId_ ID of the commit to fulfill
-    /// @param expectedRng_ Expected RNG value
     /// @param marketplace_ Address where the order should be executed
     /// @param orderData_ Calldata for the order execution
     /// @param orderAmount_ Amount of ETH to send with the order
@@ -303,7 +302,6 @@ contract PacksInitializable is
     /// @dev Emits a Fulfillment event on success
     function fulfill(
         uint256 commitId_,
-        uint256 expectedRng_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
@@ -316,7 +314,6 @@ contract PacksInitializable is
     ) public payable whenNotPaused {
         _fulfill(
             commitId_,
-            expectedRng_,
             marketplace_,
             orderData_,
             orderAmount_,
@@ -331,7 +328,6 @@ contract PacksInitializable is
 
     function _fulfill(
         uint256 commitId_,
-        uint256 expectedRng_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
@@ -357,10 +353,7 @@ contract PacksInitializable is
         if (commitCosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[commitCosigner]) revert InvalidCosigner();
 
-        // Validate the RNG
         uint256 rng = PRNG.rng(commitSignature_);
-        if (rng != expectedRng_) revert InvalidRng();
-
         bytes32 digest = hashCommit(commitData);
 
         // Check the cosigner signed the order
@@ -478,7 +471,6 @@ contract PacksInitializable is
 
     /// @notice Fulfills a commit with the result of the random number generation
     /// @param commitDigest_ Digest of the commit to fulfill
-    /// @param expectedRng_ Expected RNG value
     /// @param marketplace_ Address where the order should be executed
     /// @param orderData_ Calldata for the order execution
     /// @param orderAmount_ Amount of ETH to send with the order
@@ -491,7 +483,6 @@ contract PacksInitializable is
     /// @dev Emits a Fulfillment event on success
     function fulfillByDigest(
         bytes32 commitDigest_,
-        uint256 expectedRng_,
         address marketplace_,
         bytes calldata orderData_,
         uint256 orderAmount_,
@@ -504,7 +495,6 @@ contract PacksInitializable is
     ) public payable whenNotPaused {
         return fulfill(
             commitIdByDigest[commitDigest_],
-            expectedRng_,
             marketplace_,
             orderData_,
             orderAmount_,

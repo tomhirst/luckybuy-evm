@@ -99,7 +99,6 @@ contract CommitAndFulfillPack is PacksScriptBase {
         vm.startBroadcast(cosignerPrivateKey);
         packs.fulfill{value: orderAmount}(
             commitId,
-            rng,
             marketplace,
             orderData,
             orderAmount,

@@ -445,7 +445,6 @@ contract TestPacksInitializable is Test {
 
         packs.fulfill(
             commitId,
-            rng, // RNG value
             marketplace, // marketplace
             "", // orderData
             orderAmount,
@@ -525,7 +524,6 @@ contract TestPacksInitializable is Test {
 
         packs.fulfill(
             commitId,
-            rng, // RNG value
             marketplace,
             orderData,
             orderAmount,
@@ -540,7 +538,7 @@ contract TestPacksInitializable is Test {
         assertTrue(packs.isFulfilled(commitId));
     }
 
-    function testFulfillWithInvalidRng() public {
+    function testFulfillWithInvalidCosigner() public {
         // Create commit
         vm.startPrank(user);
         vm.deal(user, packPrice);
@@ -567,19 +565,17 @@ contract TestPacksInitializable is Test {
         });
         bytes32 digest = packs.hashCommit(commitData);
 
-        // Try to fulfill with wrong RNG value
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
             signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
-        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
+        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
 
-        vm.expectRevert(PacksInitializable.InvalidRng.selector);
+        vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         packs.fulfill(
             commitId,
-            9999, // Wrong RNG value
             marketplace,
             "",
             orderAmount,
@@ -634,7 +630,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidAmount.selector);
         packs.fulfill(
             commitId,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -688,7 +683,6 @@ contract TestPacksInitializable is Test {
 
         packs.fulfill(
             commitId,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -704,7 +698,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.AlreadyFulfilled.selector);
         packs.fulfill(
             commitId,
-            rng,
             marketplace,
             "different",
             orderAmount,
@@ -755,7 +748,6 @@ contract TestPacksInitializable is Test {
         // Call fulfill with some ETH value to fund the treasury
         packs.fulfill{value: 10 ether}(
             commitId,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -771,7 +763,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.AlreadyFulfilled.selector);
         packs.fulfill{value: 0}(
             commitId,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -983,7 +974,6 @@ contract TestPacksInitializable is Test {
         // Call fulfill with some ETH value to fund the treasury
         packs.fulfill{value: 10 ether}(
             commitId,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -1279,7 +1269,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         packs.fulfill(
             commitId,
-            0, // wrong RNG
             marketplace,
             "",
             orderAmount,
@@ -1330,7 +1319,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         packs.fulfill(
             commitId,
-            0, // wrong RNG
             marketplace,
             "",
             orderAmount,
@@ -1385,7 +1373,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
         packs.fulfill(
             commitId,
-            rng,
             marketplace,
             "",
             0.03 ether,
@@ -1441,7 +1428,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidChoiceSigner.selector);
         packs.fulfill(
             commitId,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -1475,14 +1461,14 @@ contract TestPacksInitializable is Test {
 
             // Calculate expected RNG and bucket selection
             bytes memory commitSignature = signCommit(commitId, receiver, seed + i, i, packPrice, bucketsMulti);
-            uint256 expectedRng = prng.rng(commitSignature);
+            uint256 rng = prng.rng(commitSignature);
 
             // Calculate which bucket should be selected based on RNG
             uint256 expectedBucketIndex = 0;
             uint256 cumulativeOdds = 0;
             for (uint256 j = 0; j < bucketsMulti.length; j++) {
                 cumulativeOdds += bucketsMulti[j].oddsBps;
-                if (expectedRng < cumulativeOdds) {
+                if (rng < cumulativeOdds) {
                     expectedBucketIndex = j;
                     break;
                 }
@@ -1529,7 +1515,6 @@ contract TestPacksInitializable is Test {
             // Fulfill the commit - this will internally select the bucket based on RNG
             packs.fulfill(
                 commitId,
-                expectedRng,
                 marketplace,
                 "",
                 orderAmount,
@@ -1647,7 +1632,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(abi.encodeWithSignature("EnforcedPause()"));
         packs.fulfill(
             commitId,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -1977,7 +1961,6 @@ contract TestPacksInitializable is Test {
 
         packs.fulfillByDigest(
             digest,
-            rng,
             marketplace,
             "",
             orderAmount,
@@ -2009,7 +1992,6 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidCommitId.selector);
         packs.fulfillByDigest(
             invalidDigest,
-            0, // RNG
             marketplace,
             "",
             orderAmount,
@@ -2212,7 +2194,6 @@ contract TestPacksInitializable is Test {
         // Fulfill – even though the choice is NFT, the expiry has passed so it should default to payout
         packs.fulfill(
             commitId,
-            rng,
             marketplace,
             orderData,
             orderAmount,
