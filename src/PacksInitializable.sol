@@ -355,7 +355,8 @@ contract PacksInitializable is
 
         uint256 rng = PRNG.rng(commitSignature_);
         bytes32 digest = hashCommit(commitData);
-        bytes32 fulfillmentHash = hashFulfillment(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_, choice_);
+        bytes32 fulfillmentHash =
+            hashFulfillment(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_, choice_);
 
         // Check the cosigner signed the order data
         address fulfillmentCosigner = verifyHash(fulfillmentHash, orderSignature_);

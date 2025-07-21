@@ -61,7 +61,15 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     /// @param tokenId Token id
     /// @param choice The receiver's choice
     /// @return Hash of the fulfillment
-    function hashFulfillment(bytes32 digest, address marketplace, uint256 orderAmount, bytes memory orderData, address token, uint256 tokenId, FulfillmentOption choice) public pure returns (bytes32) {
+    function hashFulfillment(
+        bytes32 digest,
+        address marketplace,
+        uint256 orderAmount,
+        bytes memory orderData,
+        address token,
+        uint256 tokenId,
+        FulfillmentOption choice
+    ) public pure returns (bytes32) {
         return keccak256(abi.encode(digest, marketplace, orderAmount, orderData, token, tokenId, choice));
     }
 
