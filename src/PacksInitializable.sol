@@ -706,7 +706,7 @@ contract PacksInitializable is
     /// @notice Sets the maximum allowed reward
     /// @param maxReward_ New maximum reward value
     /// @dev Only callable by admin role
-    function setMaxReward(uint256 maxReward_) external onlyRole(OPS_ROLE) {
+    function setMaxReward(uint256 maxReward_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (maxReward_ < minReward) revert InvalidReward();
 
         uint256 oldMaxReward = maxReward;
