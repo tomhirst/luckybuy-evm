@@ -53,6 +53,8 @@ contract PacksInitializable is
     uint256 public constant MIN_BUCKETS = 3;
     uint256 public constant MAX_BUCKETS = 5;
 
+    uint256 public constant BASE_POINTS = 10000;
+
     // Storage gap for future upgrades
     uint256[50] private __gap;
 
@@ -225,14 +227,14 @@ contract PacksInitializable is
         for (uint256 i = 0; i < buckets_.length; i++) {
             if (i < buckets_.length - 1 && buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
             if (buckets_[i].oddsBps == 0) revert InvalidBuckets();
-            if (buckets_[i].oddsBps > 10000) revert InvalidBuckets();
+            if (buckets_[i].oddsBps > BASE_POINTS) revert InvalidBuckets();
 
             // Sum individual probabilities
             totalOdds += buckets_[i].oddsBps;
         }
 
         // Final total odds check - must equal 10000 (100%)
-        if (totalOdds != 10000) revert InvalidBuckets();
+        if (totalOdds != BASE_POINTS) revert InvalidBuckets();
 
         // Hash pack for cosigner validation and event emission
         // Pack data gets re-checked in commitSignature on fulfill
@@ -442,7 +444,7 @@ contract PacksInitializable is
         } else if (fulfillmentType == FulfillmentOption.Payout) {
             // Payout fulfillment route
             // Calculate payout amount based on NFT value and payoutBps
-            uint256 payoutAmount = (orderAmount_ * payoutBps) / 10000;
+            uint256 payoutAmount = (orderAmount_ * payoutBps) / BASE_POINTS;
 
             (bool success,) = commitData.receiver.call{value: payoutAmount}("");
             if (success) {
@@ -754,7 +756,7 @@ contract PacksInitializable is
     /// @dev Only callable by admin role
     /// @dev Emits a PayoutBpsUpdated event
     function setPayoutBps(uint256 payoutBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (payoutBps_ > 10000) revert InvalidPayoutBps();
+        if (payoutBps_ > BASE_POINTS) revert InvalidPayoutBps();
         uint256 oldPayoutBps = payoutBps;
         payoutBps = payoutBps_;
         emit PayoutBpsUpdated(oldPayoutBps, payoutBps_);
