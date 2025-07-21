@@ -214,21 +214,17 @@ contract PacksInitializable is
         if (buckets_.length < MIN_BUCKETS) revert InvalidBuckets();
         if (buckets_.length > MAX_BUCKETS) revert InvalidBuckets();
 
-        // Validate bucket's min and max values
+        // Validate bucket's min and max values, ascending value range, and odds
+        uint256 totalOdds = 0;
         for (uint256 i = 0; i < buckets_.length; i++) {
             if (buckets_[i].minValue == 0) revert InvalidReward();
             if (buckets_[i].maxValue == 0) revert InvalidReward();
             if (buckets_[i].minValue > buckets_[i].maxValue) revert InvalidReward();
             if (buckets_[i].minValue < minReward) revert InvalidReward();
             if (buckets_[i].maxValue > maxReward) revert InvalidReward();
-        }
-
-        // Validate bucket's are in ascending value range
-        uint256 totalOdds = 0;
-        for (uint256 i = 0; i < buckets_.length; i++) {
-            if (i < buckets_.length - 1 && buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
             if (buckets_[i].oddsBps == 0) revert InvalidBuckets();
             if (buckets_[i].oddsBps > BASE_POINTS) revert InvalidBuckets();
+            if (i < buckets_.length - 1 && buckets_[i].maxValue >= buckets_[i + 1].minValue) revert InvalidBuckets();
 
             // Sum individual probabilities
             totalOdds += buckets_[i].oddsBps;
