@@ -50,6 +50,9 @@ contract PacksInitializable is
     uint256 public minPackPrice; // Min ETH pack price for a commit
     uint256 public maxPackPrice; // Max ETH pack price for a commit
 
+    uint256 public constant MIN_BUCKETS = 3;
+    uint256 public constant MAX_BUCKETS = 5;
+
     // Storage gap for future upgrades
     uint256[50] private __gap;
 
@@ -205,8 +208,8 @@ contract PacksInitializable is
         if (receiver_ == address(0)) revert InvalidReceiver();
 
         // Validate bucket count
-        if (buckets_.length == 0) revert InvalidBuckets();
-        if (buckets_.length > 5) revert InvalidBuckets();
+        if (buckets_.length < MIN_BUCKETS) revert InvalidBuckets();
+        if (buckets_.length > MAX_BUCKETS) revert InvalidBuckets();
 
         // Validate bucket's min and max values
         for (uint256 i = 0; i < buckets_.length; i++) {
