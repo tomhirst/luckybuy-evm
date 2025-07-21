@@ -130,6 +130,7 @@ contract PacksInitializable is
     error BucketSelectionFailed();
     error InvalidFulfillmentOption();
     error InvalidRng();
+    error InvalidMarketplace();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
@@ -342,6 +343,7 @@ contract PacksInitializable is
         bytes calldata choiceSignature_
     ) internal nonReentrant {
         // Basic validation of tx
+        if (marketplace_ == address(0)) revert InvalidMarketplace();
         if (msg.value > 0) _depositTreasury(msg.value);
         if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
