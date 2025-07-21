@@ -50,7 +50,7 @@ contract PacksInitializable is
     uint256 public minPackPrice; // Min ETH pack price for a commit
     uint256 public maxPackPrice; // Max ETH pack price for a commit
 
-    uint256 public constant MIN_BUCKETS = 3;
+    uint256 public constant MIN_BUCKETS = 1;
     uint256 public constant MAX_BUCKETS = 5;
 
     uint256 public constant BASE_POINTS = 10000;

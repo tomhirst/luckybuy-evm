@@ -135,6 +135,8 @@ contract TestPacksInitializable is Test {
     event PackRevenueWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
     event EmergencyWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
 
+    address marketplace;
+
     function setUp() public {
         vm.startPrank(admin);
         prng = new PRNG();
@@ -182,6 +184,8 @@ contract TestPacksInitializable is Test {
             minValue: 0.16 ether,
             maxValue: 0.25 ether
         });
+
+        marketplace = address(0x123);
 
         vm.stopPrank();
     }
@@ -411,7 +415,7 @@ contract TestPacksInitializable is Test {
         // Now fulfill with payout
         uint256 orderAmount = 0.03 ether; // Within bucket 0 range
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -442,7 +446,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             rng, // RNG value
-            address(0), // marketplace
+            marketplace, // marketplace
             "", // orderData
             orderAmount,
             address(0), // token
@@ -566,7 +570,7 @@ contract TestPacksInitializable is Test {
         // Try to fulfill with wrong RNG value
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -576,7 +580,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             9999, // Wrong RNG value
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -622,7 +626,7 @@ contract TestPacksInitializable is Test {
         // Try to fulfill with order amount outside bucket range
         uint256 orderAmount = 2 ether; // Outside all bucket ranges
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -631,7 +635,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -677,7 +681,7 @@ contract TestPacksInitializable is Test {
         // First fulfill
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -685,7 +689,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -701,7 +705,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "different",
             orderAmount,
             address(0),
@@ -743,7 +747,7 @@ contract TestPacksInitializable is Test {
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -752,7 +756,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill{value: 10 ether}(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -768,7 +772,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill{value: 0}(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -971,7 +975,7 @@ contract TestPacksInitializable is Test {
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -980,7 +984,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill{value: 10 ether}(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -1267,7 +1271,7 @@ contract TestPacksInitializable is Test {
         bytes memory wrongSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -1276,7 +1280,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             0, // wrong RNG
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -1318,7 +1322,7 @@ contract TestPacksInitializable is Test {
         bytes memory wrongSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -1327,7 +1331,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             0, // wrong RNG
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -1373,7 +1377,7 @@ contract TestPacksInitializable is Test {
 
         // Try to fulfill with wrong signature
         bytes memory wrongSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), 0.03 ether, "", address(0), 0, bob);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, 0.03 ether, "", address(0), 0, bob);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -1382,7 +1386,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             0.03 ether,
             address(0),
@@ -1427,7 +1431,7 @@ contract TestPacksInitializable is Test {
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
 
         // Sign choice with wrong signer (bob instead of receiver or cosigner)
         bytes memory wrongChoiceSignature = signChoice(
@@ -1438,7 +1442,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -1510,7 +1514,7 @@ contract TestPacksInitializable is Test {
 
             // Prepare signatures for fulfill
             bytes memory orderSignature = signOrder(
-                commitId, receiver, seed + i, i, packPrice, bucketsMulti, address(0), orderAmount, "", address(0), 0
+                commitId, receiver, seed + i, i, packPrice, bucketsMulti, marketplace, orderAmount, "", address(0), 0
             );
             bytes memory choiceSignature = signChoice(
                 commitId,
@@ -1526,7 +1530,7 @@ contract TestPacksInitializable is Test {
             packs.fulfill(
                 commitId,
                 expectedRng,
-                address(0),
+                marketplace,
                 "",
                 orderAmount,
                 address(0),
@@ -1635,7 +1639,7 @@ contract TestPacksInitializable is Test {
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -1644,7 +1648,7 @@ contract TestPacksInitializable is Test {
         packs.fulfill(
             commitId,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -1966,7 +1970,7 @@ contract TestPacksInitializable is Test {
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(commitId, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(commitId, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature = signChoice(
             commitId, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout
         );
@@ -1974,7 +1978,7 @@ contract TestPacksInitializable is Test {
         packs.fulfillByDigest(
             digest,
             rng,
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -1994,7 +1998,7 @@ contract TestPacksInitializable is Test {
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature =
-            signOrder(0, receiver, seed, 0, packPrice, buckets, address(0), orderAmount, "", address(0), 0);
+            signOrder(0, receiver, seed, 0, packPrice, buckets, marketplace, orderAmount, "", address(0), 0);
         bytes memory choiceSignature =
             signChoice(0, receiver, seed, 0, packPrice, buckets, IPacksSignatureVerifier.FulfillmentOption.Payout);
 
@@ -2006,7 +2010,7 @@ contract TestPacksInitializable is Test {
         packs.fulfillByDigest(
             invalidDigest,
             0, // RNG
-            address(0),
+            marketplace,
             "",
             orderAmount,
             address(0),
@@ -2023,7 +2027,7 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.expectRevert(
             abi.encodeWithSelector(
-                bytes4(keccak256("AccessControlUnauthorizedAccount(address,bytes32)")), user, packs.OPS_ROLE()
+                bytes4(keccak256("AccessControlUnauthorizedAccount(address,bytes32)")), user, packs.DEFAULT_ADMIN_ROLE()
             )
         );
         packs.setMaxReward(10 ether);
