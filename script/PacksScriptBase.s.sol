@@ -53,11 +53,17 @@ contract PacksScriptBase is Script {
         bytes memory orderData,
         address token,
         uint256 tokenId,
+        IPacksSignatureVerifier.FulfillmentOption choice,
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 digest = packs.hashCommit(commitData);
-        bytes32 orderHash = packs.hashOrder(digest, marketplace, orderAmount, orderData, token, tokenId);
-        return _signMessage(orderHash, signerKey);
+        bytes32 fulfillmentHash = packs.hashFulfillment(digest, marketplace, orderAmount, orderData, token, tokenId, choice);
+        return _signMessage(fulfillmentHash, signerKey);
+    }
+
+    // Local implementation of hashChoice for script purposes
+    function hashChoice(bytes32 digest, IPacksSignatureVerifier.FulfillmentOption choice) private pure returns (bytes32) {
+        return keccak256(abi.encode(digest, choice));
     }
 
     function signChoice(
@@ -67,7 +73,7 @@ contract PacksScriptBase is Script {
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 digest = packs.hashCommit(commitData);
-        bytes32 choiceHash = packs.hashChoice(digest, choice);
+        bytes32 choiceHash = hashChoice(digest, choice);
         return _signMessage(choiceHash, signerKey);
     }
 

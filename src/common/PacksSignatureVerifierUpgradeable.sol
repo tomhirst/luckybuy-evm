@@ -52,28 +52,17 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
         return keccak256(abi.encode(packPrice, buckets));
     }
 
-    /// @notice Hashes an order
+    /// @notice Hashes a fulfillment
     /// @param digest The commit digest
-    /// @param to Receiver of the order
-    /// @param value Amount of ether to send
-    /// @param data Data to send
-    /// @param tokenAddress Token address
+    /// @param marketplace Marketplace address
+    /// @param orderAmount Order amount
+    /// @param orderData Order data
+    /// @param token Token address
     /// @param tokenId Token id
-    /// @return Hash of the order
-    function hashOrder(bytes32 digest, address to, uint256 value, bytes memory data, address tokenAddress, uint256 tokenId)
-        public
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encode(digest, to, value, data, tokenAddress, tokenId));
-    }
-
-    /// @notice Hashes the receiver choice data for signature validation
-    /// @param digest The commit digest
     /// @param choice The receiver's choice
-    /// @return Hash of the choice data
-    function hashChoice(bytes32 digest, FulfillmentOption choice) public pure returns (bytes32) {
-        return keccak256(abi.encode(digest, choice));
+    /// @return Hash of the fulfillment
+    function hashFulfillment(bytes32 digest, address marketplace, uint256 orderAmount, bytes memory orderData, address token, uint256 tokenId, FulfillmentOption choice) public pure returns (bytes32) {
+        return keccak256(abi.encode(digest, marketplace, orderAmount, orderData, token, tokenId, choice));
     }
 
     /// @notice Verifies the signature for a given Commit, returning the address of the signer.

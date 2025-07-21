@@ -29,16 +29,15 @@ interface IPacksSignatureVerifier {
 
     function hashPack(uint256 packPrice, BucketData[] memory buckets) external pure returns (bytes32);
 
-    function hashOrder(
+    function hashFulfillment(
         bytes32 digest,
-        address to,
-        uint256 value,
-        bytes memory data,
-        address tokenAddress,
-        uint256 tokenId
+        address marketplace,
+        uint256 orderAmount,
+        bytes memory orderData,
+        address token,
+        uint256 tokenId,
+        FulfillmentOption choice
     ) external pure returns (bytes32);
-
-    function hashChoice(bytes32 digest, FulfillmentOption choice) external pure returns (bytes32);
 
     function verifyCommit(CommitData memory commit, bytes memory signature) external view returns (address);
 

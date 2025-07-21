@@ -355,12 +355,12 @@ contract PacksInitializable is
 
         uint256 rng = PRNG.rng(commitSignature_);
         bytes32 digest = hashCommit(commitData);
+        bytes32 fulfillmentHash = hashFulfillment(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_, choice_);
 
-        // Check the cosigner signed the order
-        bytes32 orderHash = hashOrder(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_);
-        address orderCosigner = verifyHash(orderHash, orderSignature_);
-        if (orderCosigner != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[orderCosigner]) revert InvalidCosigner();
+        // Check the cosigner signed the order data
+        address fulfillmentCosigner = verifyHash(fulfillmentHash, orderSignature_);
+        if (fulfillmentCosigner != commitData.cosigner) revert InvalidCosigner();
+        if (!isCosigner[fulfillmentCosigner]) revert InvalidCosigner();
 
         // Determine bucket and validate orderAmount is within bucket range
         uint256 bucketIndex = _getBucketIndex(rng, commitData.buckets);
@@ -369,8 +369,7 @@ contract PacksInitializable is
         if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
 
         // Check the fulfillment option
-        bytes32 choiceHash = hashChoice(digest, choice_);
-        address choiceSigner = verifyHash(choiceHash, choiceSignature_);
+        address choiceSigner = verifyHash(fulfillmentHash, choiceSignature_);
         if (choiceSigner != commitData.receiver && choiceSigner != commitData.cosigner) revert InvalidChoiceSigner();
 
         // If the user wants to fulfill via NFT but the option has expired, default to payout
