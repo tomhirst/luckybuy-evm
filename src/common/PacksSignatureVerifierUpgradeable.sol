@@ -45,11 +45,12 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     }
 
     /// @notice Hashes a pack commit
+    /// @param packType Pack type
     /// @param packPrice Pack price in ether
     /// @param buckets Buckets used in the pack
     /// @return Hash of the pack
-    function hashPack(uint256 packPrice, BucketData[] memory buckets) public pure returns (bytes32) {
-        return keccak256(abi.encode(packPrice, buckets));
+    function hashPack(PackType packType, uint256 packPrice, BucketData[] memory buckets) public pure returns (bytes32) {
+        return keccak256(abi.encode(packType, packPrice, buckets));
     }
 
     /// @notice Hashes a fulfillment

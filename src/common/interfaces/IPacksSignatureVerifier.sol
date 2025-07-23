@@ -8,6 +8,13 @@ interface IPacksSignatureVerifier {
         uint256 maxValue;
     }
 
+    enum PackType {
+        NFT,
+        RWA
+    }
+
+    function hashPack(PackType packType, uint256 packPrice, BucketData[] memory buckets) external pure returns (bytes32);
+
     struct CommitData {
         uint256 id;
         address receiver;
@@ -24,10 +31,6 @@ interface IPacksSignatureVerifier {
         Payout,
         NFT
     }
-
-    function hashCommit(CommitData memory commit) external view returns (bytes32);
-
-    function hashPack(uint256 packPrice, BucketData[] memory buckets) external pure returns (bytes32);
 
     function hashFulfillment(
         bytes32 digest,

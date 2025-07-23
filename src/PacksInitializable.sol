@@ -188,6 +188,7 @@ contract PacksInitializable is
     /// @param receiver_ Address that will receive the NFT/ETH if won
     /// @param cosigner_ Address of the authorized cosigner
     /// @param seed_ Random seed for the commit
+    /// @param packType_ Type of pack
     /// @param buckets_ Buckets used in the pack
     /// @param signature_ Signature is the cosigned hash of packPrice + buckets[]
     /// @dev Emits a Commit event on success
@@ -196,6 +197,7 @@ contract PacksInitializable is
         address receiver_,
         address cosigner_,
         uint256 seed_,
+        PackType packType_,
         BucketData[] memory buckets_,
         bytes memory signature_
     ) public payable whenNotPaused returns (uint256) {
@@ -235,7 +237,7 @@ contract PacksInitializable is
 
         // Hash pack for cosigner validation and event emission
         // Pack data gets re-checked in commitSignature on fulfill
-        bytes32 packHash = hashPack(packPrice, buckets_);
+        bytes32 packHash = hashPack(packType_, packPrice, buckets_);
         address cosigner = verifyHash(packHash, signature_);
         if (cosigner != cosigner_) revert InvalidCosigner();
         if (!isCosigner[cosigner]) revert InvalidCosigner();

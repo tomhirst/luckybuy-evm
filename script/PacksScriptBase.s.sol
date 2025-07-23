@@ -14,7 +14,7 @@ contract PacksScriptBase is Script {
         IPacksSignatureVerifier.BucketData[] memory buckets,
         uint256 signerKey
     ) internal pure returns (bytes memory) {
-        bytes32 packHash = packs.hashPack(packPrice, buckets);
+        bytes32 packHash = packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets);
         return _signMessage(packHash, signerKey);
     }
 
@@ -38,7 +38,7 @@ contract PacksScriptBase is Script {
             packPrice: packPrice,
             payoutBps: packs.payoutBps(),
             buckets: buckets,
-            packHash: packs.hashPack(packPrice, buckets)
+            packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
 
         bytes32 digest = packs.hashCommit(commitData);

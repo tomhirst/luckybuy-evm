@@ -47,6 +47,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
             player, // receiver
             cosigner, // cosigner
             SEED,
+            IPacksSignatureVerifier.PackType.NFT,
             buckets,
             packSignature
         );
@@ -63,7 +64,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
             packPrice: PACK_PRICE,
             payoutBps: packs.payoutBps(),
             buckets: buckets,
-            packHash: packs.hashPack(PACK_PRICE, buckets)
+            packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, PACK_PRICE, buckets)
         });
 
         // 4. Sign the commit data
