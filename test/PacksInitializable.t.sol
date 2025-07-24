@@ -82,9 +82,10 @@ contract TestPacksInitializable is Test {
     MockPacksInitializable packs;
     address admin = address(0x1);
     address user = address(0x2);
-    address receiver = address(0x3);
     uint256 constant COSIGNER_PRIVATE_KEY = 1234;
+    uint256 constant RECEIVER_PRIVATE_KEY = 5678; // Known private key for receiver
     address cosigner = vm.addr(COSIGNER_PRIVATE_KEY);
+    address receiver = vm.addr(RECEIVER_PRIVATE_KEY); // Derive receiver from known private key
     address fundsReceiverManager = address(0x4);
     address fundsReceiver = address(0x5);
 
@@ -584,7 +585,7 @@ contract TestPacksInitializable is Test {
             tokenId,
             0.01 ether, // payoutAmount (must be within bucket range even for NFT)
             IPacksSignatureVerifier.FulfillmentOption.NFT,
-            cosigner
+            receiver
         );
 
         vm.expectEmit(true, true, false, true);
@@ -599,7 +600,7 @@ contract TestPacksInitializable is Test {
             tokenId,
             orderAmount,
             receiver,
-            cosigner,
+            receiver, // choiceSigner should be receiver since receiver signed the choice
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             digest
@@ -1425,8 +1426,10 @@ contract TestPacksInitializable is Test {
         uint256 privateKey;
         if (signer_ == cosigner) {
             privateKey = COSIGNER_PRIVATE_KEY;
+        } else if (signer_ == receiver) {
+            privateKey = RECEIVER_PRIVATE_KEY;
         } else if (signer_ == bob) {
-            privateKey = 5678;
+            privateKey = 9999; // Different from RECEIVER_PRIVATE_KEY
         } else if (signer_ == charlie) {
             privateKey = 9012;
         } else {
@@ -1458,7 +1461,6 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1790,7 +1792,9 @@ contract TestPacksInitializable is Test {
         uint256 numTests = 1000;
 
         // Fund the contract treasury to handle payouts
-        (bool success,) = payable(address(packs)).call{value: 100 ether}("");
+        // Maximum possible payout: 1000 iterations × 0.18 ether = 180 ether
+        vm.deal(address(this), 300 ether); // Give the test contract enough ETH
+        (bool success,) = payable(address(packs)).call{value: 200 ether}("");
         require(success, "Failed to fund contract");
 
         for (uint256 i = 0; i < numTests; i++) {
