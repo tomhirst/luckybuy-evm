@@ -28,7 +28,7 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
             keccak256(
                 abi.encode(
                     keccak256(
-                        "CommitData(uint256 id,address receiver,address cosigner,uint256 seed,uint256 counter,uint256 packPrice,uint256 payoutBps,BucketData[] buckets,bytes32 packHash)"
+                        "CommitData(uint256 id,address receiver,address cosigner,uint256 seed,uint256 counter,uint256 packPrice,BucketData[] buckets,bytes32 packHash)"
                     ),
                     commit.id,
                     commit.receiver,
@@ -36,7 +36,6 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
                     commit.seed,
                     commit.counter,
                     commit.packPrice,
-                    commit.payoutBps,
                     commit.buckets,
                     commit.packHash
                 )
@@ -60,6 +59,7 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
     /// @param orderData Order data
     /// @param token Token address
     /// @param tokenId Token id
+    /// @param payoutAmount ETH value on payout
     /// @param choice The receiver's choice
     /// @return Hash of the fulfillment
     function hashFulfillment(
@@ -69,9 +69,10 @@ contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upg
         bytes memory orderData,
         address token,
         uint256 tokenId,
+        uint256 payoutAmount,
         FulfillmentOption choice
     ) public pure returns (bytes32) {
-        return keccak256(abi.encode(digest, marketplace, orderAmount, orderData, token, tokenId, choice));
+        return keccak256(abi.encode(digest, marketplace, orderAmount, orderData, token, tokenId, payoutAmount, choice));
     }
 
     /// @notice Verifies the signature for a given Commit, returning the address of the signer.

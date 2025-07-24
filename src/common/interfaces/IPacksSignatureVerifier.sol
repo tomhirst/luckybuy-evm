@@ -22,7 +22,6 @@ interface IPacksSignatureVerifier {
         uint256 seed;
         uint256 counter;
         uint256 packPrice;
-        uint256 payoutBps;
         BucketData[] buckets;
         bytes32 packHash;
     }
@@ -39,6 +38,7 @@ interface IPacksSignatureVerifier {
         bytes memory orderData,
         address token,
         uint256 tokenId,
+        uint256 payoutAmount,
         FulfillmentOption choice
     ) external pure returns (bytes32);
 

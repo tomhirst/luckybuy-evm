@@ -43,7 +43,6 @@ contract PacksInitializable is
     mapping(uint256 commitId => bool fulfilled) public isFulfilled;
     mapping(uint256 commitId => bool cancelled) public isCancelled;
 
-    uint256 public payoutBps; // When user selects payout as reward
     uint256 public minReward; // Min ETH reward for a commit (whether it's NFT or payout)
     uint256 public maxReward; // Max ETH reward for a commit (whether it's NFT or payout)
     uint256 public minPackPrice; // Min ETH pack price for a commit
@@ -96,7 +95,6 @@ contract PacksInitializable is
     event CommitCancellableTimeUpdated(uint256 oldCommitCancellableTime, uint256 newCommitCancellableTime);
     event NftFulfillmentExpiryTimeUpdated(uint256 oldNftFulfillmentExpiryTime, uint256 newNftFulfillmentExpiryTime);
     event CommitCancelled(uint256 indexed commitId, bytes32 digest);
-    event PayoutBpsUpdated(uint256 oldPayoutBps, uint256 newPayoutBps);
     event FundsReceiverUpdated(address indexed oldFundsReceiver, address indexed newFundsReceiver);
     event FundsReceiverManagerTransferred(
         address indexed oldFundsReceiverManager, address indexed newFundsReceiverManager
@@ -120,14 +118,15 @@ contract PacksInitializable is
     error InvalidNftFulfillmentExpiryTime();
     error CommitIsCancelled();
     error CommitNotCancellable();
-    error InvalidPayoutBps();
     error InvalidFundsReceiver();
     error InvalidFundsReceiverManager();
     error InitialOwnerCannotBeZero();
     error NewImplementationCannotBeZero();
     error BucketSelectionFailed();
-    error InvalidRng();
     error InvalidMarketplace();
+    error InvalidPayoutAmount();
+    error InvalidOrderAmount();
+    error PayoutAmountGreaterThanOrderAmount();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
@@ -164,7 +163,6 @@ contract PacksInitializable is
         _grantRole(FUNDS_RECEIVER_MANAGER_ROLE, fundsReceiverManager_);
 
         // Initialize reward limits
-        payoutBps = 9000;
         minReward = 0.01 ether;
         maxReward = 5 ether;
 
@@ -251,7 +249,6 @@ contract PacksInitializable is
             seed: seed_,
             counter: userCounter,
             packPrice: packPrice,
-            payoutBps: payoutBps,
             buckets: buckets_,
             packHash: packHash
         });
@@ -290,6 +287,7 @@ contract PacksInitializable is
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
+    /// @param payoutAmount_ Amount of ETH to send to the receiver on payout choice
     /// @param commitSignature_ Signature used for commit data
     /// @param orderSignature_ Signature used for orderData (and to validate orderData)
     /// @param choice_ Choice made by the receiver (Payout = 0, NFT = 1)
@@ -302,6 +300,7 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
+        uint256 payoutAmount_,
         bytes calldata commitSignature_,
         bytes calldata orderSignature_,
         FulfillmentOption choice_,
@@ -314,6 +313,7 @@ contract PacksInitializable is
             orderAmount_,
             token_,
             tokenId_,
+            payoutAmount_,
             commitSignature_,
             orderSignature_,
             choice_,
@@ -328,8 +328,9 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
+        uint256 payoutAmount_,
         bytes calldata commitSignature_,
-        bytes calldata orderSignature_,
+        bytes calldata fulfillmentSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
     ) internal nonReentrant {
@@ -340,6 +341,7 @@ contract PacksInitializable is
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isCancelled[commitId_]) revert CommitIsCancelled();
         if (commitId_ >= packs.length) revert InvalidCommitId();
+        if (payoutAmount_ > orderAmount_) revert PayoutAmountGreaterThanOrderAmount();
 
         CommitData memory commitData = packs[commitId_];
 
@@ -351,18 +353,20 @@ contract PacksInitializable is
         uint256 rng = PRNG.rng(commitSignature_);
         bytes32 digest = hashCommit(commitData);
         bytes32 fulfillmentHash =
-            hashFulfillment(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_, choice_);
+            hashFulfillment(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_, payoutAmount_, choice_);
 
         // Check the cosigner signed the order data
-        address fulfillmentCosigner = verifyHash(fulfillmentHash, orderSignature_);
+        address fulfillmentCosigner = verifyHash(fulfillmentHash, fulfillmentSignature_);
         if (fulfillmentCosigner != commitData.cosigner) revert InvalidCosigner();
         if (!isCosigner[fulfillmentCosigner]) revert InvalidCosigner();
 
-        // Determine bucket and validate orderAmount is within bucket range
+        // Determine bucket and validate orderAmount and payoutAmount are within bucket range
         uint256 bucketIndex = _getBucketIndex(rng, commitData.buckets);
         BucketData memory bucket = commitData.buckets[bucketIndex];
-        if (orderAmount_ < bucket.minValue) revert InvalidAmount();
-        if (orderAmount_ > bucket.maxValue) revert InvalidAmount();
+        if (orderAmount_ < bucket.minValue) revert InvalidOrderAmount();
+        if (orderAmount_ > bucket.maxValue) revert InvalidOrderAmount();
+        if (payoutAmount_ < bucket.minValue) revert InvalidPayoutAmount();
+        if (payoutAmount_ > bucket.maxValue) revert InvalidPayoutAmount();
 
         // Check the fulfillment option
         address choiceSigner = verifyHash(fulfillmentHash, choiceSignature_);
@@ -437,15 +441,14 @@ contract PacksInitializable is
             }
         } else {
             // Payout fulfillment route
-            // Calculate payout to receiver and remainder to fundsReceiver
-            uint256 payoutAmount = (orderAmount_ * payoutBps) / BASE_POINTS;
-            uint256 remainderAmount = orderAmount_ - payoutAmount;
+            // Calculate payout remainder to fundsReceiver
+            uint256 remainderAmount = orderAmount_ - payoutAmount_;
 
-            (bool success,) = commitData.receiver.call{value: payoutAmount}("");
+            (bool success,) = commitData.receiver.call{value: payoutAmount_}("");
             if (success) {
-                treasuryBalance -= payoutAmount;
+                treasuryBalance -= payoutAmount_;
             } else {
-                emit TransferFailure(commitData.id, commitData.receiver, payoutAmount, digest);
+                emit TransferFailure(commitData.id, commitData.receiver, payoutAmount_, digest);
             }
 
             // Transfer the remainder to the funds receiver
@@ -464,7 +467,7 @@ contract PacksInitializable is
                 rng,
                 bucket.oddsBps,
                 bucketIndex,
-                payoutAmount,
+                payoutAmount_,
                 address(0), // no NFT token address for payout
                 0, // no NFT token ID for payout
                 0, // no NFT amount for payout
@@ -484,6 +487,7 @@ contract PacksInitializable is
     /// @param orderAmount_ Amount of ETH to send with the order
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
+    /// @param payoutAmount_ Amount of ETH to send to the receiver on payout choice
     /// @param commitSignature_ Signature used for commit data
     /// @param orderSignature_ Signature used for commit data
     /// @param choice_ Choice made by the receiver
@@ -496,6 +500,7 @@ contract PacksInitializable is
         uint256 orderAmount_,
         address token_,
         uint256 tokenId_,
+        uint256 payoutAmount_,
         bytes calldata commitSignature_,
         bytes calldata orderSignature_,
         FulfillmentOption choice_,
@@ -508,6 +513,7 @@ contract PacksInitializable is
             orderAmount_,
             token_,
             tokenId_,
+            payoutAmount_,
             commitSignature_,
             orderSignature_,
             choice_,
@@ -735,17 +741,6 @@ contract PacksInitializable is
         uint256 oldMaxPackPrice = maxPackPrice;
         maxPackPrice = maxPackPrice_;
         emit MaxPackPriceUpdated(oldMaxPackPrice, maxPackPrice_);
-    }
-
-    /// @notice Sets the payout basis points
-    /// @param payoutBps_ New payout basis points
-    /// @dev Only callable by admin role
-    /// @dev Emits a PayoutBpsUpdated event
-    function setPayoutBps(uint256 payoutBps_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (payoutBps_ > BASE_POINTS) revert InvalidPayoutBps();
-        uint256 oldPayoutBps = payoutBps;
-        payoutBps = payoutBps_;
-        emit PayoutBpsUpdated(oldPayoutBps, payoutBps_);
     }
 
     /// @notice Deposits ETH into the treasury
