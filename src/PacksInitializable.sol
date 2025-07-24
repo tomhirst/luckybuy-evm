@@ -128,7 +128,6 @@ contract PacksInitializable is
     error InitialOwnerCannotBeZero();
     error NewImplementationCannotBeZero();
     error BucketSelectionFailed();
-    error InvalidFulfillmentOption();
     error InvalidRng();
     error InvalidMarketplace();
 
@@ -434,7 +433,7 @@ contract PacksInitializable is
                     digest
                 );
             }
-        } else if (fulfillmentType == FulfillmentOption.Payout) {
+        } else {
             // Payout fulfillment route
             // Calculate payout amount based on NFT value and payoutBps
             uint256 payoutAmount = (orderAmount_ * payoutBps) / BASE_POINTS;
@@ -462,8 +461,6 @@ contract PacksInitializable is
                 fulfillmentType,
                 digest
             );
-        } else {
-            revert InvalidFulfillmentOption();
         }
     }
 
