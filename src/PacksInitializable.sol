@@ -289,7 +289,7 @@ contract PacksInitializable is
     /// @param tokenId_ ID of the token if it's an NFT
     /// @param payoutAmount_ Amount of ETH to send to the receiver on payout choice
     /// @param commitSignature_ Signature used for commit data
-    /// @param orderSignature_ Signature used for orderData (and to validate orderData)
+    /// @param fulfillmentSignature_ Signature used for orderData (and to validate orderData)
     /// @param choice_ Choice made by the receiver (Payout = 0, NFT = 1)
     /// @param choiceSignature_ Signature used for receiver's choice (only required for NFT choice)
     /// @dev Emits a Fulfillment event on success
@@ -302,7 +302,7 @@ contract PacksInitializable is
         uint256 tokenId_,
         uint256 payoutAmount_,
         bytes calldata commitSignature_,
-        bytes calldata orderSignature_,
+        bytes calldata fulfillmentSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
     ) public payable whenNotPaused {
@@ -315,7 +315,7 @@ contract PacksInitializable is
             tokenId_,
             payoutAmount_,
             commitSignature_,
-            orderSignature_,
+            fulfillmentSignature_,
             choice_,
             choiceSignature_
         );
@@ -489,7 +489,7 @@ contract PacksInitializable is
     /// @param tokenId_ ID of the token if it's an NFT
     /// @param payoutAmount_ Amount of ETH to send to the receiver on payout choice
     /// @param commitSignature_ Signature used for commit data
-    /// @param orderSignature_ Signature used for commit data
+    /// @param fulfillmentSignature_ Signature used for fulfillment data
     /// @param choice_ Choice made by the receiver
     /// @param choiceSignature_ Signature used for receiver's choice
     /// @dev Emits a Fulfillment event on success
@@ -502,7 +502,7 @@ contract PacksInitializable is
         uint256 tokenId_,
         uint256 payoutAmount_,
         bytes calldata commitSignature_,
-        bytes calldata orderSignature_,
+        bytes calldata fulfillmentSignature_,
         FulfillmentOption choice_,
         bytes calldata choiceSignature_
     ) public payable whenNotPaused {
@@ -515,7 +515,7 @@ contract PacksInitializable is
             tokenId_,
             payoutAmount_,
             commitSignature_,
-            orderSignature_,
+            fulfillmentSignature_,
             choice_,
             choiceSignature_
         );
