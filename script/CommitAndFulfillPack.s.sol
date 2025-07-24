@@ -62,7 +62,6 @@ contract CommitAndFulfillPack is PacksScriptBase {
             seed: SEED,
             counter: 0,
             packPrice: PACK_PRICE,
-            payoutBps: packs.payoutBps(),
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, PACK_PRICE, buckets)
         });
@@ -92,6 +91,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
             orderData,
             token,
             tokenId,
+            0, // payoutAmount (not used for NFT fulfillment)
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             cosignerPrivateKey
         );
@@ -114,6 +114,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
             orderAmount,
             token,
             tokenId,
+            0, // payoutAmount (not used for NFT fulfillment)
             commitSignature,
             orderSignature,
             fulfillmentOption,

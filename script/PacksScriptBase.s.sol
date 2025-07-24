@@ -36,7 +36,6 @@ contract PacksScriptBase is Script {
             seed: seed,
             counter: counter,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -53,12 +52,13 @@ contract PacksScriptBase is Script {
         bytes memory orderData,
         address token,
         uint256 tokenId,
+        uint256 payoutAmount,
         IPacksSignatureVerifier.FulfillmentOption choice,
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 digest = packs.hashCommit(commitData);
         bytes32 fulfillmentHash =
-            packs.hashFulfillment(digest, marketplace, orderAmount, orderData, token, tokenId, choice);
+            packs.hashFulfillment(digest, marketplace, orderAmount, orderData, token, tokenId, payoutAmount, choice);
         return _signMessage(fulfillmentHash, signerKey);
     }
 

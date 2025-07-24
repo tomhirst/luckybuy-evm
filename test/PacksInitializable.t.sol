@@ -198,7 +198,7 @@ contract TestPacksInitializable is Test {
         assertTrue(packs.hasRole(packs.FUNDS_RECEIVER_MANAGER_ROLE(), fundsReceiverManager));
 
         // Check default values
-        assertEq(packs.payoutBps(), 9000);
+        // payoutBps is no longer used - payout amount is now passed directly
         assertEq(packs.minReward(), 0.01 ether);
         assertEq(packs.maxReward(), 5 ether);
         assertEq(packs.minPackPrice(), 0.01 ether);
@@ -227,7 +227,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -261,7 +261,6 @@ contract TestPacksInitializable is Test {
             uint256 storedSeed,
             uint256 storedCounter,
             uint256 storedPackPrice,
-            uint256 storedPayoutBps,
             bytes32 storedPackHash
         ) = packs.packs(0);
 
@@ -271,7 +270,7 @@ contract TestPacksInitializable is Test {
         assertEq(storedSeed, seed);
         assertEq(storedCounter, 0);
         assertEq(storedPackPrice, packPrice);
-        assertEq(storedPayoutBps, packs.payoutBps());
+        // payoutBps is no longer used - payout amount is now passed directly
         assertEq(storedPackHash, packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets));
 
         vm.stopPrank();
@@ -435,7 +434,6 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -443,6 +441,7 @@ contract TestPacksInitializable is Test {
 
         // Now fulfill with payout
         uint256 orderAmount = 0.03 ether; // Within bucket 0 range
+        uint256 expectedPayoutAmount = 0.027 ether; // 90% of 0.03 ether
         bytes memory orderSignature = signFulfillment(
             commitId,
             receiver,
@@ -455,6 +454,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            expectedPayoutAmount,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -470,6 +470,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            expectedPayoutAmount,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -477,7 +478,6 @@ contract TestPacksInitializable is Test {
         // Calculate RNG and bucket selection
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
         uint256 rng = prng.rng(commitSignature);
-        uint256 expectedPayoutAmount = (orderAmount * packs.payoutBps()) / 10000;
 
         vm.expectEmit(true, true, false, true);
         emit Fulfillment(
@@ -504,6 +504,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0), // token
             0, // tokenId
+            expectedPayoutAmount, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -548,7 +549,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -565,6 +566,7 @@ contract TestPacksInitializable is Test {
             orderData,
             token,
             tokenId,
+            0.01 ether, // payoutAmount (must be within bucket range even for NFT)
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             cosigner
         );
@@ -580,6 +582,7 @@ contract TestPacksInitializable is Test {
             orderData,
             token,
             tokenId,
+            0.01 ether, // payoutAmount (must be within bucket range even for NFT)
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             cosigner
         );
@@ -609,6 +612,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             token,
             tokenId,
+            0.01 ether, // payoutAmount (must be within bucket range even for NFT)
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
@@ -641,7 +645,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -660,6 +664,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether, // payoutAmount
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -675,6 +680,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether, // payoutAmount
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -688,6 +694,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -722,7 +729,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -742,6 +749,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            1.8 ether, // payoutAmount (90% of 2 ether)
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -757,11 +765,12 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            1.8 ether, // payoutAmount (90% of 2 ether)
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
 
-        vm.expectRevert(PacksInitializable.InvalidAmount.selector);
+        vm.expectRevert(PacksInitializable.InvalidOrderAmount.selector);
         packs.fulfill(
             commitId,
             marketplace,
@@ -769,6 +778,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            1.8 ether, // payoutAmount (90% of 2 ether)
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -803,7 +813,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -823,6 +833,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether, // payoutAmount
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -838,6 +849,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether, // payoutAmount
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -849,6 +861,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -864,6 +877,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -895,7 +909,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -914,6 +928,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether, // payoutAmount
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -929,6 +944,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether, // payoutAmount
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -941,6 +957,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -956,6 +973,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -995,7 +1013,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1043,7 +1061,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1163,6 +1181,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether, // payoutAmount
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1178,6 +1197,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -1185,7 +1205,7 @@ contract TestPacksInitializable is Test {
         );
 
         // fundsReceiver should have received pack price plus remainder of payout
-        uint256 remainderAmount = orderAmount - ((orderAmount * packs.payoutBps()) / 10000);
+        uint256 remainderAmount = orderAmount - 0.027 ether; // Fixed payout amount
         assertEq(fundsReceiver.balance, initialFundsReceiverBalance + packPrice + remainderAmount);
     }
 
@@ -1208,6 +1228,7 @@ contract TestPacksInitializable is Test {
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
 
         uint256 orderAmount = 0.05 ether; // within bucket range
+        uint256 payoutAmount = 0.045 ether;
         bytes memory orderData = hex"";
         address token = address(0x123);
         uint256 tokenId = 1;
@@ -1224,10 +1245,26 @@ contract TestPacksInitializable is Test {
             orderData,
             token,
             tokenId,
+            0.01 ether, // payoutAmount (must be within bucket range even for NFT)
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             cosigner
         );
-        bytes memory choiceSignature = orderSignature;
+        bytes memory choiceSignature = signFulfillment(
+            commitId,
+            receiver,
+            seed,
+            0,
+            packPrice,
+            buckets,
+            marketplace,
+            orderAmount,
+            orderData,
+            token,
+            tokenId,
+            0.01 ether, // payoutAmount (must be within bucket range even for NFT)
+            IPacksSignatureVerifier.FulfillmentOption.NFT,
+            cosigner
+        );
 
         uint256 initialFundsReceiverBalance = fundsReceiver.balance;
 
@@ -1239,6 +1276,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             token,
             tokenId,
+            0.01 ether, // payoutAmount (must be within bucket range even for NFT)
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
@@ -1330,7 +1368,7 @@ contract TestPacksInitializable is Test {
             seed: seed_,
             counter: counter_,
             packPrice: packPrice_,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets_,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice_, buckets_)
         });
@@ -1367,6 +1405,7 @@ contract TestPacksInitializable is Test {
         bytes memory orderData_,
         address token_,
         uint256 tokenId_,
+        uint256 payoutAmount_,
         IPacksSignatureVerifier.FulfillmentOption choice_,
         address signer_
     ) internal view returns (bytes memory) {
@@ -1377,13 +1416,12 @@ contract TestPacksInitializable is Test {
             seed: seed_,
             counter: counter_,
             packPrice: packPrice_,
-            payoutBps: packs.payoutBps(),
             buckets: buckets_,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice_, buckets_)
         });
         bytes32 digest = packs.hashCommit(commitData);
         bytes32 fulfillmentHash =
-            packs.hashFulfillment(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_, choice_);
+            packs.hashFulfillment(digest, marketplace_, orderAmount_, orderData_, token_, tokenId_, payoutAmount_, choice_);
         uint256 privateKey;
         if (signer_ == cosigner) {
             privateKey = COSIGNER_PRIVATE_KEY;
@@ -1420,7 +1458,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1441,6 +1479,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1456,6 +1495,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1468,6 +1508,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether,
             wrongSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -1497,7 +1538,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1518,6 +1559,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1533,6 +1575,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1545,6 +1588,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether,
             wrongSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -1580,7 +1624,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1599,6 +1643,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             bob
         );
@@ -1615,6 +1660,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1630,6 +1676,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1642,6 +1689,7 @@ contract TestPacksInitializable is Test {
             0.03 ether,
             address(0),
             0,
+            0.027 ether,
             commitSignature,
             wrongSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -1676,7 +1724,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1695,6 +1743,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1712,6 +1761,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             bob
         );
@@ -1724,6 +1774,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount (must be within bucket range)
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -1769,12 +1820,16 @@ contract TestPacksInitializable is Test {
 
             // Use an order amount that falls within the expected bucket's range
             uint256 orderAmount;
+            uint256 payoutAmount;
             if (expectedBucketIndex == 0) {
                 orderAmount = 0.03 ether; // Within bucket 0 range (0.01-0.05)
+                payoutAmount = 0.027 ether;
             } else if (expectedBucketIndex == 1) {
                 orderAmount = 0.1 ether; // Within bucket 1 range (0.06-0.15)
+                payoutAmount = 0.09 ether;
             } else {
                 orderAmount = 0.2 ether; // Within bucket 2 range (0.16-0.25)
+                payoutAmount = 0.18 ether;
             }
 
             // Calculate the commit digest for signing order
@@ -1785,7 +1840,6 @@ contract TestPacksInitializable is Test {
                 seed: seed + i,
                 counter: i,
                 packPrice: packPrice,
-                payoutBps: packs.payoutBps(),
                 buckets: bucketsMulti,
                 packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, bucketsMulti)
             });
@@ -1804,6 +1858,7 @@ contract TestPacksInitializable is Test {
                 "",
                 address(0),
                 0,
+                payoutAmount,
                 IPacksSignatureVerifier.FulfillmentOption.Payout,
                 cosigner
             );
@@ -1819,6 +1874,7 @@ contract TestPacksInitializable is Test {
                 "",
                 address(0),
                 0,
+                payoutAmount,
                 IPacksSignatureVerifier.FulfillmentOption.Payout,
                 cosigner
             );
@@ -1831,6 +1887,7 @@ contract TestPacksInitializable is Test {
                 orderAmount,
                 address(0),
                 0,
+                payoutAmount,
                 commitSignature,
                 orderSignature,
                 IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -1931,7 +1988,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -1950,6 +2007,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1965,6 +2023,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -1977,6 +2036,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether, // payoutAmount
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -2287,7 +2347,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -2307,6 +2367,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -2322,6 +2383,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -2333,6 +2395,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether,
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -2359,6 +2422,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -2374,6 +2438,7 @@ contract TestPacksInitializable is Test {
             "",
             address(0),
             0,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
@@ -2390,6 +2455,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             address(0),
             0,
+            0.027 ether,
             "", // commitSignature
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.Payout,
@@ -2425,9 +2491,9 @@ contract TestPacksInitializable is Test {
         vm.expectRevert(PacksInitializable.InvalidPackPrice.selector);
         packs.setMaxPackPrice(0.005 ether); // Less than min pack price
 
-        // Test invalid payout bps
-        vm.expectRevert(PacksInitializable.InvalidPayoutBps.selector);
-        packs.setPayoutBps(15000); // Greater than 10000
+        // Test invalid payout bps - payoutBps is no longer used
+        // vm.expectRevert(PacksInitializable.InvalidPayoutBps.selector);
+        // packs.setPayoutBps(15000); // Greater than 10000
 
         vm.stopPrank();
     }
@@ -2553,6 +2619,7 @@ contract TestPacksInitializable is Test {
             orderData,
             token,
             tokenId,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             cosigner
         );
@@ -2568,6 +2635,7 @@ contract TestPacksInitializable is Test {
             orderData,
             token,
             tokenId,
+            0.027 ether,
             IPacksSignatureVerifier.FulfillmentOption.NFT,
             cosigner
         );
@@ -2576,7 +2644,7 @@ contract TestPacksInitializable is Test {
         vm.warp(block.timestamp + 1 minutes);
 
         uint256 receiverInitialBalance = receiver.balance;
-        uint256 expectedPayout = (orderAmount * packs.payoutBps()) / 10000;
+        uint256 expectedPayout = 0.027 ether; // Fixed payout amount
 
         // Calculate digest for expected event
         IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
@@ -2586,7 +2654,7 @@ contract TestPacksInitializable is Test {
             seed: seed,
             counter: 0,
             packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
+            
             buckets: buckets,
             packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
@@ -2619,6 +2687,7 @@ contract TestPacksInitializable is Test {
             orderAmount,
             token,
             tokenId,
+            0.027 ether,
             commitSignature,
             orderSignature,
             IPacksSignatureVerifier.FulfillmentOption.NFT, // User's choice
