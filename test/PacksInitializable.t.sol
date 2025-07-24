@@ -1189,6 +1189,66 @@ contract TestPacksInitializable is Test {
         assertEq(fundsReceiver.balance, initialFundsReceiverBalance + packPrice + remainderAmount);
     }
 
+    function testPackRevenueForwardedOnFulfillNFT() public {
+        // Commit a pack
+        vm.startPrank(user);
+        vm.deal(user, packPrice);
+        bytes memory packSignature = signPack(packPrice, buckets);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver,
+            cosigner,
+            seed,
+            IPacksSignatureVerifier.PackType.NFT,
+            buckets,
+            packSignature
+        );
+        vm.stopPrank();
+
+        // Build fulfillment signatures for NFT choice
+        bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
+
+        uint256 orderAmount = 0.05 ether; // within bucket range
+        bytes memory orderData = hex"";
+        address token = address(0x123);
+        uint256 tokenId = 1;
+
+        bytes memory orderSignature = signFulfillment(
+            commitId,
+            receiver,
+            seed,
+            0,
+            packPrice,
+            buckets,
+            marketplace,
+            orderAmount,
+            orderData,
+            token,
+            tokenId,
+            IPacksSignatureVerifier.FulfillmentOption.NFT,
+            cosigner
+        );
+        bytes memory choiceSignature = orderSignature;
+
+        uint256 initialFundsReceiverBalance = fundsReceiver.balance;
+
+        // Fulfill; send enough ETH to treasury to cover order amount
+        packs.fulfill{value: 1 ether}(
+            commitId,
+            marketplace,
+            orderData,
+            orderAmount,
+            token,
+            tokenId,
+            commitSignature,
+            orderSignature,
+            IPacksSignatureVerifier.FulfillmentOption.NFT,
+            choiceSignature
+        );
+
+        // fundsReceiver should have received only the pack price (no remainder for NFT path)
+        assertEq(fundsReceiver.balance, initialFundsReceiverBalance + packPrice);
+    }
+
     function testEmergencyWithdraw() public {
         // Create commit
         vm.startPrank(user);
