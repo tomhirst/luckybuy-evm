@@ -132,7 +132,6 @@ contract TestPacksInitializable is Test {
 
     event CommitCancelled(uint256 indexed commitId, bytes32 digest);
     event TreasuryWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
-    event PackRevenueWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
     event EmergencyWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
 
     address marketplace;
@@ -235,9 +234,21 @@ contract TestPacksInitializable is Test {
         bytes32 digest = packs.hashCommit(commitData);
 
         vm.expectEmit(true, true, true, true);
-        emit Commit(user, 0, receiver, cosigner, seed, 0, packPrice, packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets), digest);
+        emit Commit(
+            user,
+            0,
+            receiver,
+            cosigner,
+            seed,
+            0,
+            packPrice,
+            packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets),
+            digest
+        );
 
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, signature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, signature
+        );
 
         assertEq(commitId, 0);
         assertEq(packs.packCount(receiver), 1);
@@ -273,7 +284,9 @@ contract TestPacksInitializable is Test {
         bytes memory signature = signPack(0.5 ether, buckets);
 
         vm.expectRevert(PacksInitializable.InvalidAmount.selector);
-        packs.commit{value: 0.5 ether}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, signature);
+        packs.commit{value: 0.5 ether}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, signature
+        );
 
         vm.stopPrank();
     }
@@ -285,7 +298,9 @@ contract TestPacksInitializable is Test {
         bytes memory signature = signPack(packPrice, buckets);
 
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
-        packs.commit{value: packPrice}(receiver, address(0x999), seed, IPacksSignatureVerifier.PackType.NFT, buckets, signature);
+        packs.commit{value: packPrice}(
+            receiver, address(0x999), seed, IPacksSignatureVerifier.PackType.NFT, buckets, signature
+        );
 
         vm.stopPrank();
     }
@@ -299,7 +314,9 @@ contract TestPacksInitializable is Test {
         bytes memory signature = signPack(packPrice, emptyBuckets);
 
         vm.expectRevert(PacksInitializable.InvalidBuckets.selector);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, emptyBuckets, signature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, emptyBuckets, signature
+        );
 
         // Test too many buckets
         IPacksSignatureVerifier.BucketData[] memory tooManyBuckets = new IPacksSignatureVerifier.BucketData[](6);
@@ -310,7 +327,9 @@ contract TestPacksInitializable is Test {
         signature = signPack(packPrice, tooManyBuckets);
 
         vm.expectRevert(PacksInitializable.InvalidBuckets.selector);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, tooManyBuckets, signature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, tooManyBuckets, signature
+        );
 
         vm.stopPrank();
     }
@@ -325,7 +344,9 @@ contract TestPacksInitializable is Test {
         bytes memory signature = signPack(packPrice, invalidBuckets);
 
         vm.expectRevert(PacksInitializable.InvalidReward.selector);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, invalidBuckets, signature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, invalidBuckets, signature
+        );
 
         vm.stopPrank();
     }
@@ -346,7 +367,9 @@ contract TestPacksInitializable is Test {
         bytes memory signature = signPack(packPrice, overlappingBuckets);
 
         vm.expectRevert(PacksInitializable.InvalidBuckets.selector);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, overlappingBuckets, signature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, overlappingBuckets, signature
+        );
 
         vm.stopPrank();
     }
@@ -367,7 +390,9 @@ contract TestPacksInitializable is Test {
         bytes memory signature = signPack(packPrice, invalidOddsBuckets);
 
         vm.expectRevert(PacksInitializable.InvalidBuckets.selector);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, invalidOddsBuckets, signature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, invalidOddsBuckets, signature
+        );
 
         vm.stopPrank();
     }
@@ -379,7 +404,9 @@ contract TestPacksInitializable is Test {
         bytes memory wrongSignature = signPack(packPrice + 0.1 ether, buckets);
 
         vm.expectRevert(PacksInitializable.InvalidCosigner.selector);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, wrongSignature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, wrongSignature
+        );
 
         vm.stopPrank();
     }
@@ -389,7 +416,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         // Fund contract treasury properly and cosigner
         vm.deal(user, 10 ether);
@@ -408,7 +437,7 @@ contract TestPacksInitializable is Test {
             packPrice: packPrice,
             payoutBps: packs.payoutBps(),
             buckets: buckets,
-            packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT,packPrice, buckets)
+            packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
         });
         bytes32 digest = packs.hashCommit(commitData);
 
@@ -489,7 +518,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         // Fund contract treasury properly and cosigner
         vm.deal(user, 10 ether);
@@ -592,7 +623,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         // Fund contract treasury properly
         vm.deal(user, 10 ether);
@@ -667,7 +700,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         // Fund contract treasury properly
         vm.deal(user, 10 ether);
@@ -746,7 +781,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         // Fund contract treasury properly
         vm.deal(user, 10 ether);
@@ -839,7 +876,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         vm.deal(cosigner, 20 ether);
         vm.stopPrank();
@@ -1092,30 +1131,24 @@ contract TestPacksInitializable is Test {
         assertEq(fundsReceiver.balance, initialBalance + withdrawAmount);
     }
 
-    function testWithdrawPackRevenueSuccess() public {
-        // commit a pack
+    function testWithdrawTreasuryInsufficientBalance() public {
+        vm.expectRevert(PacksInitializable.InsufficientBalance.selector);
+        vm.prank(admin);
+        packs.withdrawTreasury(1 ether);
+    }
+
+    function testPackRevenueForwardedOnFulfill() public {
+        // Commit a pack
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
         vm.stopPrank();
 
-        // Calculate RNG and bucket selection
+        // Build fulfillment signatures
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets);
-        uint256 rng = prng.rng(commitSignature);
-
-        // Calculate the commit digest
-        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
-            id: commitId,
-            receiver: receiver,
-            cosigner: cosigner,
-            seed: seed,
-            counter: 0,
-            packPrice: packPrice,
-            payoutBps: packs.payoutBps(),
-            buckets: buckets,
-            packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
-        });
 
         uint256 orderAmount = 0.03 ether;
         bytes memory orderSignature = signFulfillment(
@@ -1133,24 +1166,12 @@ contract TestPacksInitializable is Test {
             IPacksSignatureVerifier.FulfillmentOption.Payout,
             cosigner
         );
-        bytes memory choiceSignature = signFulfillment(
-            commitId,
-            receiver,
-            seed,
-            0,
-            packPrice,
-            buckets,
-            marketplace,
-            orderAmount,
-            "",
-            address(0),
-            0,
-            IPacksSignatureVerifier.FulfillmentOption.Payout,
-            cosigner
-        );
+        bytes memory choiceSignature = orderSignature;
 
-        // Call fulfill with some ETH value to fund the treasury
-        packs.fulfill{value: 10 ether}(
+        uint256 initialFundsReceiverBalance = fundsReceiver.balance;
+
+        // Fulfill; provide some ETH to treasury to cover order
+        packs.fulfill{value: 1 ether}(
             commitId,
             marketplace,
             "",
@@ -1163,27 +1184,9 @@ contract TestPacksInitializable is Test {
             choiceSignature
         );
 
-        uint256 initialBalance = fundsReceiver.balance;
-        vm.expectEmit(true, false, false, true);
-        emit PackRevenueWithdrawal(admin, packPrice, fundsReceiver);
-
-        vm.prank(admin);
-        packs.withdrawPackRevenue(packPrice);
-
-        assertEq(fundsReceiver.balance, initialBalance + packPrice);
-        assertEq(packs.packRevenueBalance(), 0);
-    }
-
-    function testWithdrawTreasuryInsufficientBalance() public {
-        vm.expectRevert(PacksInitializable.InsufficientBalance.selector);
-        vm.prank(admin);
-        packs.withdrawTreasury(1 ether);
-    }
-
-    function testWithdrawPackRevenueInsufficientBalance() public {
-        vm.expectRevert(PacksInitializable.InsufficientBalance.selector);
-        vm.prank(admin);
-        packs.withdrawPackRevenue(1 ether);
+        // fundsReceiver should have received pack price plus remainder of payout
+        uint256 remainderAmount = orderAmount - ((orderAmount * packs.payoutBps()) / 10000);
+        assertEq(fundsReceiver.balance, initialFundsReceiverBalance + packPrice + remainderAmount);
     }
 
     function testEmergencyWithdraw() public {
@@ -1191,7 +1194,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         vm.deal(address(packs), address(packs).balance + 5 ether);
         vm.stopPrank();
@@ -1338,7 +1343,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
         vm.stopPrank();
 
         // Fund contract so balance check doesn't fail first
@@ -1413,7 +1420,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
         vm.stopPrank();
 
         // Fund contract so balance check doesn't fail first
@@ -1488,7 +1497,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
         vm.stopPrank();
 
         // Fund contract treasury properly
@@ -1583,7 +1594,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         // Fund contract treasury properly
         vm.deal(user, 10 ether);
@@ -1674,7 +1687,9 @@ contract TestPacksInitializable is Test {
             vm.startPrank(user);
             vm.deal(user, packPrice);
             bytes memory packSignature = signPack(packPrice, bucketsMulti);
-            uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed + i, IPacksSignatureVerifier.PackType.NFT, bucketsMulti, packSignature);
+            uint256 commitId = packs.commit{value: packPrice}(
+                receiver, cosigner, seed + i, IPacksSignatureVerifier.PackType.NFT, bucketsMulti, packSignature
+            );
             vm.stopPrank();
 
             // Calculate expected RNG and bucket selection
@@ -1821,7 +1836,9 @@ contract TestPacksInitializable is Test {
         bytes memory packSignature = signPack(packPrice, buckets);
 
         vm.expectRevert();
-        packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
         vm.stopPrank();
     }
 
@@ -1830,7 +1847,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
         vm.stopPrank();
 
         // Then pause
@@ -2185,7 +2204,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
 
         // Fund contract treasury properly and cosigner
         vm.deal(user, 10 ether);
@@ -2441,7 +2462,9 @@ contract TestPacksInitializable is Test {
         vm.startPrank(user);
         vm.deal(user, packPrice);
         bytes memory packSignature = signPack(packPrice, buckets);
-        uint256 commitId = packs.commit{value: packPrice}(receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature);
+        uint256 commitId = packs.commit{value: packPrice}(
+            receiver, cosigner, seed, IPacksSignatureVerifier.PackType.NFT, buckets, packSignature
+        );
         vm.stopPrank();
 
         // Fund the contract treasury so that payouts can be covered

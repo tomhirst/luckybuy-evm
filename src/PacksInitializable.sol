@@ -25,7 +25,6 @@ contract PacksInitializable is
 
     uint256 public treasuryBalance; // The operational balance
     uint256 public commitBalance; // The open commit balance
-    uint256 public packRevenueBalance; // The pack revenue balance
 
     // Commits are cancellable after time passes unfulfilled
     uint256 public constant MIN_COMMIT_CANCELLABLE_TIME = 1 hours;
@@ -91,7 +90,6 @@ contract PacksInitializable is
     event MaxPackPriceUpdated(uint256 oldMaxPackPrice, uint256 newMaxPackPrice);
     event TreasuryDeposit(address indexed sender, uint256 amount);
     event TreasuryWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
-    event PackRevenueWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
     event EmergencyWithdrawal(address indexed sender, uint256 amount, address fundsReceiver);
     event MinRewardUpdated(uint256 oldMinReward, uint256 newMinReward);
     event MinPackPriceUpdated(uint256 oldMinPackPrice, uint256 newMinPackPrice);
@@ -379,9 +377,13 @@ contract PacksInitializable is
         // Mark the commit as fulfilled
         isFulfilled[commitId_] = true;
 
-        // Collect the commit balance as pack revenue
-        packRevenueBalance += commitData.packPrice;
+        // Forward pack revenue to the funds receiver
         commitBalance -= commitData.packPrice;
+        (bool revenueSuccess,) = payable(fundsReceiver).call{value: commitData.packPrice}("");
+        if (!revenueSuccess) {
+            // If the transfer fails, fall back to treasury so the admin can rescue later
+            treasuryBalance += commitData.packPrice;
+        }
 
         // Handle user choice and fulfil order or payout
         if (fulfillmentType == FulfillmentOption.NFT) {
@@ -435,8 +437,9 @@ contract PacksInitializable is
             }
         } else {
             // Payout fulfillment route
-            // Calculate payout amount based on NFT value and payoutBps
+            // Calculate payout to receiver and remainder to fundsReceiver
             uint256 payoutAmount = (orderAmount_ * payoutBps) / BASE_POINTS;
+            uint256 remainderAmount = orderAmount_ - payoutAmount;
 
             (bool success,) = commitData.receiver.call{value: payoutAmount}("");
             if (success) {
@@ -444,6 +447,16 @@ contract PacksInitializable is
             } else {
                 emit TransferFailure(commitData.id, commitData.receiver, payoutAmount, digest);
             }
+
+            // Transfer the remainder to the funds receiver
+            if (remainderAmount > 0) {
+                (bool remainderSuccess,) = payable(fundsReceiver).call{value: remainderAmount}("");
+                if (remainderSuccess) {
+                    treasuryBalance -= remainderAmount;
+                }
+                // If transfer fails, keep funds in the treasury for later rescue
+            }
+
             // emit the payout
             emit Fulfillment(
                 msg.sender,
@@ -516,25 +529,12 @@ contract PacksInitializable is
         emit TreasuryWithdrawal(msg.sender, amount, fundsReceiver);
     }
 
-    /// @notice Allows the admin to withdraw pack revenue
-    /// @param amount The amount of pack revenue to withdraw
-    /// @dev Only callable by admin role
-    /// @dev Emits a Withdrawal event
-    function withdrawPackRevenue(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (amount > packRevenueBalance) revert InsufficientBalance();
-        packRevenueBalance -= amount;
-        (bool success,) = payable(fundsReceiver).call{value: amount}("");
-        if (!success) revert WithdrawalFailed();
-        emit PackRevenueWithdrawal(msg.sender, amount, fundsReceiver);
-    }
-
     /// @notice Allows the admin to withdraw all ETH from the contract
     /// @dev Only callable by admin role
     /// @dev Emits a Withdrawal event
     function emergencyWithdraw() external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         treasuryBalance = 0;
         commitBalance = 0;
-        packRevenueBalance = 0;
 
         uint256 currentBalance = address(this).balance;
 
@@ -567,7 +567,8 @@ contract PacksInitializable is
 
         (bool success,) = payable(commitData.receiver).call{value: commitAmount}("");
         if (!success) {
-            packRevenueBalance += commitAmount;
+            // If the transfer fails, fall back to treasury so the admin can rescue later
+            treasuryBalance += commitAmount;
             emit TransferFailure(commitId_, commitData.receiver, commitAmount, hashCommit(commitData));
         }
 
