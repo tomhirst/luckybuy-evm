@@ -130,7 +130,6 @@ contract Packs is
     }
 
     constructor(
-        address initialOwner_,
         address fundsReceiver_,
         address prng_,
         address fundsReceiverManager_
@@ -159,11 +158,6 @@ contract Packs is
         // Initialize expiries
         commitCancellableTime = 1 days;
         nftFulfillmentExpiryTime = 10 minutes;
-
-        // Grant roles to initial owner
-        _grantRole(DEFAULT_ADMIN_ROLE, initialOwner_);
-        _grantRole(OPS_ROLE, initialOwner_);
-        _grantRole(RESCUE_ROLE, initialOwner_);
     }
 
     /// @notice Allows a user to commit funds for a pack purchase

@@ -9,7 +9,7 @@ contract PacksInitializable is Packs, UUPSUpgradeable {
     error InvalidZeroAddress();
 
     /// @dev Disables initializers for the implementation contract.
-    constructor() Packs(address(0x1), address(0x2), address(0x3), address(0x4)) {
+    constructor() Packs(address(0x2), address(0x3), address(0x4)) {
         _disableInitializers();
     }
 
