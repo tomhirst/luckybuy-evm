@@ -38,6 +38,11 @@ contract LuckyBuy is
     uint256 public protocolFee = 0;
     uint256 public minReward = BASE_POINTS;
     uint256 public flatFee = 0;
+    uint256 public bulkCommitFee = 0;
+
+    uint256 public maxBulkSize = 20;
+
+    uint256 public bulkSessionCounter = 0;
 
     uint256 public commitExpireTime = 1 days;
     mapping(uint256 commitId => uint256 expiresAt) public commitExpiresAt;
@@ -68,22 +73,26 @@ contract LuckyBuy is
         uint256 reward,
         uint256 protocolFee,
         uint256 flatFee,
-        bytes32 digest
+        bytes32 digest,
+        uint256 bulkSessionId
     );
     event CosignerAdded(address indexed cosigner);
     event CosignerRemoved(address indexed cosigner);
     event Fulfillment(
-        address indexed sender,
-        uint256 indexed commitId,
+        bytes32 indexed digest,
+        address indexed receiver,
+        uint256 commitId,
+        address cosigner,
+        uint256 commitAmount,
+        uint256 orderAmount,
+        address token,
+        uint256 tokenId,
         uint256 rng,
         uint256 odds,
         bool win,
-        address token,
-        uint256 tokenId,
-        uint256 amount,
-        address receiver,
-        uint256 fee,
-        bytes32 digest
+        bool orderSuccess,
+        uint256 protocolFee,
+        uint256 flatFee
     );
     event MaxRewardUpdated(uint256 oldMaxReward, uint256 newMaxReward);
     event ProtocolFeeUpdated(uint256 oldProtocolFee, uint256 newProtocolFee);
@@ -105,6 +114,16 @@ contract LuckyBuy is
         uint256 amount
     );
     event FlatFeeUpdated(uint256 oldFlatFee, uint256 newFlatFee);
+    event BulkCommitFeeUpdated(
+        uint256 oldBulkCommitFee,
+        uint256 newBulkCommitFee
+    );
+    event BulkCommit(
+        address indexed sender,
+        uint256 indexed bulkSessionId,
+        uint256 numberOfCommits,
+        uint256[] commitIds
+    );
     event FeeReceiverUpdated(
         address indexed oldFeeReceiver,
         address indexed newFeeReceiver
@@ -136,6 +155,7 @@ contract LuckyBuy is
         uint256 amount,
         bytes32 digest
     );
+    event MaxBulkSizeUpdated(uint256 oldMaxBulkSize, uint256 newMaxBulkSize);
 
     error AlreadyCosigner();
     error AlreadyFulfilled();
@@ -145,6 +165,7 @@ contract LuckyBuy is
     error InvalidCosigner();
     error InvalidOrderHash();
     error InvalidProtocolFee();
+    error InvalidBulkCommitFee();
     error InvalidReceiver();
     error InvalidReward();
     error FulfillmentFailed();
@@ -155,9 +176,31 @@ contract LuckyBuy is
     error CommitNotExpired();
     error TransferFailed();
     error InvalidFeeReceiver();
-    error InvalidFeeSplitReceiver();
     error InvalidFeeSplitPercentage();
     error InvalidFeeReceiverManager();
+    error InvalidBulkSize();
+
+    // Bulk operation structs
+    struct CommitRequest {
+        address receiver;
+        address cosigner;
+        uint256 seed;
+        bytes32 orderHash;
+        uint256 reward;
+        uint256 amount; // Amount of ETH to commit for this specific request
+    }
+
+    struct FulfillRequest {
+        bytes32 commitDigest;
+        address marketplace;
+        bytes orderData;
+        uint256 orderAmount;
+        address token;
+        uint256 tokenId;
+        bytes signature;
+        address feeSplitReceiver;
+        uint256 feeSplitPercentage;
+    }
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (
@@ -172,6 +215,7 @@ contract LuckyBuy is
     constructor(
         uint256 protocolFee_,
         uint256 flatFee_,
+        uint256 bulkCommitFee_,
         address feeReceiver_,
         address prng_,
         address feeReceiverManager_
@@ -183,6 +227,7 @@ contract LuckyBuy is
 
         _setProtocolFee(protocolFee_);
         _setFlatFee(flatFee_);
+        _setBulkCommitFee(bulkCommitFee_);
         _setFeeReceiver(feeReceiver_);
         PRNG = IPRNG(prng_);
         _grantRole(FEE_RECEIVER_MANAGER_ROLE, feeReceiverManager_);
@@ -204,52 +249,116 @@ contract LuckyBuy is
         uint256 reward_
     ) public payable whenNotPaused returns (uint256) {
         if (msg.value == 0) revert InvalidAmount();
-        if (!isCosigner[cosigner_]) revert InvalidCosigner();
-        if (cosigner_ == address(0)) revert InvalidCosigner();
-        if (receiver_ == address(0)) revert InvalidReceiver();
-        if (reward_ > maxReward) revert InvalidReward();
-        if (reward_ < minReward) revert InvalidReward();
-        if (reward_ == 0) revert InvalidReward();
 
-        uint256 amountWithoutFlatFee = msg.value - flatFee;
-
-        // We collect the flat fee regardless of the amount. It is not returned to the user, ever.
-        treasuryBalance += flatFee;
-
-        // This is the amount the user wants to commit
-        uint256 commitAmount = calculateContributionWithoutFee(
-            amountWithoutFlatFee
-        );
-
-        // The commit amount must be greater than one percent of the reward
-        if (commitAmount < (reward_ / ONE_PERCENT)) revert InvalidAmount();
-
-        // The fee is the amount without the flat fee minus the amount without the protocol fee
-        uint256 protocolFee = amountWithoutFlatFee - commitAmount;
-
-        // The commit amount must be less than the reward
-        if (commitAmount > reward_) revert InvalidAmount();
-
-        // Check if odds are greater than 100%
-        if ((commitAmount * BASE_POINTS) / reward_ > BASE_POINTS)
-            revert InvalidAmount();
-
-        uint256 commitId = luckyBuys.length;
-        uint256 userCounter = luckyBuyCount[receiver_]++;
-
-        feesPaid[commitId] = protocolFee;
-        protocolBalance += protocolFee;
-        commitBalance += commitAmount;
-
-        CommitData memory commitData = CommitData({
-            id: commitId,
+        CommitRequest memory request = CommitRequest({
             receiver: receiver_,
             cosigner: cosigner_,
             seed: seed_,
-            counter: userCounter,
             orderHash: orderHash_,
+            reward: reward_,
+            amount: msg.value
+        });
+
+        return _processCommit(request, protocolFee);
+    }
+
+    /// @notice Allows a user to commit funds for multiple chances to win in a single transaction
+    /// @param requests_ Array of commit requests
+    /// @dev Applies a bulk commit premium fee on top of protocol fee for bulk commits
+    /// @dev Emits a Commit event for each successful commit with the same bulkSessionId for tracking
+    /// @return commitIds Array of created commit IDs
+    function bulkCommit(
+        CommitRequest[] calldata requests_
+    ) public payable whenNotPaused returns (uint256[] memory commitIds) {
+        if (requests_.length == 0) revert InvalidAmount();
+        if (requests_.length > maxBulkSize) revert InvalidBulkSize();
+
+        uint256 effectiveFeeRate = protocolFee + bulkCommitFee;
+        uint256 currentBulkSessionId = ++bulkSessionCounter;
+        uint256 remainingValue = msg.value;
+
+        commitIds = new uint256[](requests_.length);
+        
+        for (uint256 i = 0; i < requests_.length; i++) {
+            CommitRequest calldata request = requests_[i];
+            
+            if (request.amount == 0 || remainingValue < request.amount) revert InvalidAmount();
+            
+            remainingValue -= request.amount;
+
+            commitIds[i] = _processCommit(request, effectiveFeeRate, currentBulkSessionId);
+        }
+
+        if (remainingValue != 0) revert InvalidAmount();
+
+        emit BulkCommit(
+            msg.sender,
+            currentBulkSessionId,
+            requests_.length,
+            commitIds
+        );
+
+        return commitIds;
+    }
+
+    /// @notice Internal function to process an individual commit
+    /// @param request_ The commit request to process
+    /// @param feeRate_ The fee rate to apply (in basis points)
+    /// @return commitId The ID of the created commit
+    function _processCommit(
+        CommitRequest memory request_,
+        uint256 feeRate_
+    ) internal returns (uint256 commitId) {
+        return _processCommit(request_, feeRate_, 0);
+    }
+
+    /// @notice Internal function to process a commit (individual or bulk)
+    /// @param request_ The commit request to process
+    /// @param feeRate_ The fee rate to apply (in basis points)
+    /// @param bulkSessionId_ The bulk session ID (0 for individual commits, >0 for bulk commits)
+    /// @return commitId The ID of the created commit
+    function _processCommit(
+        CommitRequest memory request_,
+        uint256 feeRate_,
+        uint256 bulkSessionId_
+    ) internal returns (uint256 commitId) {
+        uint256 amountWithoutFlatFee = request_.amount - flatFee;
+        uint256 commitAmount = calculateContributionWithoutFee(
+            amountWithoutFlatFee,
+            feeRate_
+        );
+
+        _validateCommit(
+            request_.receiver,
+            request_.cosigner,
+            request_.reward,
+            commitAmount
+        );
+
+        _handleFlatFeePayment();
+
+        // Calculate total fee amount (includes protocol fee + bulk fee for bulk commits)
+        uint256 totalFeeAmount = amountWithoutFlatFee - commitAmount;
+
+        // Create commit
+        commitId = luckyBuys.length;
+        uint256 userCounter = luckyBuyCount[request_.receiver]++;
+
+        // Update balances
+        feesPaid[commitId] = totalFeeAmount;
+        protocolBalance += totalFeeAmount;
+        commitBalance += commitAmount;
+
+        // Store commit data
+        CommitData memory commitData = CommitData({
+            id: commitId,
+            receiver: request_.receiver,
+            cosigner: request_.cosigner,
+            seed: request_.seed,
+            counter: userCounter,
+            orderHash: request_.orderHash,
             amount: commitAmount,
-            reward: reward_
+            reward: request_.reward
         });
 
         luckyBuys.push(commitData);
@@ -261,19 +370,28 @@ contract LuckyBuy is
         emit Commit(
             msg.sender,
             commitId,
-            receiver_,
-            cosigner_,
-            seed_,
+            request_.receiver,
+            request_.cosigner,
+            request_.seed,
             userCounter,
-            orderHash_, // Relay tx properties: to, data, value
+            request_.orderHash,
             commitAmount,
-            reward_,
-            protocolFee,
+            request_.reward,
+            totalFeeAmount,
             flatFee,
-            digest
+            digest,
+            bulkSessionId_
         );
+    }
 
-        return commitId;
+    /// @notice Internal function to handle flat fee payment
+    function _handleFlatFeePayment() internal {
+        if (flatFee > 0 && feeReceiver != address(0)) {
+            (bool success, ) = feeReceiver.call{value: flatFee}("");
+            if (!success) revert TransferFailed();
+        } else {
+            treasuryBalance += flatFee;
+        }
     }
 
     /// @notice Fulfills a commit with the result of the random number generation
@@ -284,41 +402,11 @@ contract LuckyBuy is
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
     /// @param signature_ Signature used for random number generation
+    /// @param feeSplitReceiver_ Address of the fee split receiver (address(0) for no split)
+    /// @param feeSplitPercentage_ Percentage of the fee to split (0 for no split)
     /// @dev Emits a Fulfillment event on success
+    /// @dev Emits a FeeSplit event if fee splitting is enabled
     function fulfill(
-        uint256 commitId_,
-        address marketplace_,
-        bytes calldata orderData_,
-        uint256 orderAmount_,
-        address token_,
-        uint256 tokenId_,
-        bytes calldata signature_
-    ) public payable whenNotPaused {
-        uint256 protocolFeesPaid = feesPaid[commitId_];
-        _fulfill(
-            commitId_,
-            marketplace_,
-            orderData_,
-            orderAmount_,
-            token_,
-            tokenId_,
-            signature_
-        );
-        _sendProtocolFees(commitId_, protocolFeesPaid);
-    }
-
-    /// @notice Fulfills a commit with the result of the random number generation
-    /// @param commitId_ ID of the commit to fulfill
-    /// @param marketplace_ Address where the order should be executed
-    /// @param orderData_ Calldata for the order execution
-    /// @param orderAmount_ Amount of ETH to send with the order
-    /// @param token_ Address of the token being transferred (zero address for ETH)
-    /// @param tokenId_ ID of the token if it's an NFT
-    /// @param signature_ Signature used for random number generation
-    /// @param feeSplitReceiver_ Address of the fee split receiver
-    /// @param feeSplitPercentage_ Percentage of the fee to split relative to the protocol fees paid
-    /// @dev Emits a FeeSplit event on success
-    function fulfillWithFeeSplit(
         uint256 commitId_,
         address marketplace_,
         bytes calldata orderData_,
@@ -329,13 +417,8 @@ contract LuckyBuy is
         address feeSplitReceiver_,
         uint256 feeSplitPercentage_
     ) public payable whenNotPaused {
-        if (feeSplitReceiver_ == address(0)) revert InvalidFeeSplitReceiver();
-        if (feeSplitReceiver_ == address(this))
-            revert InvalidFeeSplitReceiver();
-        if (feeSplitPercentage_ > BASE_POINTS)
-            revert InvalidFeeSplitPercentage();
+        uint256 protocolFeesPaid = feesPaid[commitId_];
 
-        // Call fulfill as-is
         _fulfill(
             commitId_,
             marketplace_,
@@ -346,38 +429,46 @@ contract LuckyBuy is
             signature_
         );
 
-        // All accounting is done in the fulfill function We will fetch to protocol fees that were transferred to the treasury and transfer the split amount from our treasury balance
-        uint256 protocolFeesPaid = feesPaid[commitId_];
-        uint256 splitAmount = (protocolFeesPaid * feeSplitPercentage_) /
-            BASE_POINTS;
+        // Handle fee splitting if enabled
+        if (
+            feeSplitReceiver_ != address(0) &&
+            feeSplitPercentage_ > 0
+        ) {
+            if (feeSplitPercentage_ > BASE_POINTS) {
+                revert InvalidFeeSplitPercentage();
+            }
 
-        (bool success, ) = payable(feeSplitReceiver_).call{value: splitAmount}(
-            ""
-        );
+            uint256 splitAmount = (protocolFeesPaid * feeSplitPercentage_) /
+                BASE_POINTS;
 
-        // This is deliberate. We do not want to block execution and will manually send fees to the receiver.
-        if (!success) {
-            emit FeeTransferFailure(
+            (bool success, ) = payable(feeSplitReceiver_).call{
+                value: splitAmount
+            }("");
+            if (!success) {
+                emit FeeTransferFailure(
+                    commitId_,
+                    feeSplitReceiver_,
+                    splitAmount,
+                    hash(luckyBuys[commitId_])
+                );
+            } else {
+                treasuryBalance -= splitAmount;
+            }
+
+            uint256 remainingProtocolFees = protocolFeesPaid - splitAmount;
+            _sendProtocolFees(commitId_, remainingProtocolFees);
+
+            emit FeeSplit(
                 commitId_,
                 feeSplitReceiver_,
-                splitAmount,
-                hash(luckyBuys[commitId_])
+                feeSplitPercentage_,
+                protocolFeesPaid,
+                splitAmount
             );
         } else {
-            // Subtract the split amount from the treasury balance
-            treasuryBalance -= splitAmount;
+            // No fee split, send all protocol fees normally
+            _sendProtocolFees(commitId_, protocolFeesPaid);
         }
-
-        uint256 remainingProtocolFees = protocolFeesPaid - splitAmount;
-        _sendProtocolFees(commitId_, remainingProtocolFees);
-
-        emit FeeSplit(
-            commitId_,
-            feeSplitReceiver_,
-            feeSplitPercentage_,
-            protocolFeesPaid,
-            splitAmount
-        );
     }
 
     function _fulfill(
@@ -389,33 +480,20 @@ contract LuckyBuy is
         uint256 tokenId_,
         bytes calldata signature_
     ) internal nonReentrant {
-        // validate tx
         if (msg.value > 0) _depositTreasury(msg.value);
-        if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
-        if (isFulfilled[commitId_]) revert AlreadyFulfilled();
-        if (isExpired[commitId_]) revert CommitIsExpired();
-        if (commitId_ >= luckyBuys.length) revert InvalidCommitId();
+
+        (CommitData memory commitData, bytes32 digest) = _validateFulfillment(
+            commitId_,
+            marketplace_,
+            orderData_,
+            orderAmount_,
+            token_,
+            tokenId_,
+            signature_
+        );
 
         // mark the commit as fulfilled
         isFulfilled[commitId_] = true;
-
-        // validate commit data matches tx data
-        CommitData memory commitData = luckyBuys[commitId_];
-
-        // validate the order hash
-        if (
-            commitData.orderHash !=
-            hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_)
-        ) revert InvalidOrderHash();
-
-        // validate the reward amount
-        if (orderAmount_ != commitData.reward) revert InvalidAmount();
-
-        // hash commit, check signature. digest is needed later for logging
-        bytes32 digest = hash(commitData);
-        address cosigner = _verifyDigest(digest, signature_);
-        if (cosigner != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[cosigner]) revert InvalidCosigner();
 
         // Collect the commit balance and protocol fees
         // transfer the commit balance to the contract
@@ -427,6 +505,9 @@ contract LuckyBuy is
 
         treasuryBalance += protocolFeesPaid;
         protocolBalance -= protocolFeesPaid;
+
+        // Check if we have enough balance after collecting all funds
+        if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
 
         // calculate the odds in base points
         uint256 odds = _calculateOdds(commitData.amount, commitData.reward);
@@ -445,7 +526,8 @@ contract LuckyBuy is
                 token_,
                 tokenId_,
                 protocolFeesPaid,
-                digest
+                digest,
+                signature_
             );
         } else {
             if (openEditionToken != address(0)) {
@@ -457,22 +539,25 @@ contract LuckyBuy is
             }
             // emit the failure
             emit Fulfillment(
-                msg.sender,
-                commitId_,
+                digest,
+                commitData.receiver,
+                commitData.id,
+                commitData.cosigner,
+                commitData.amount,
+                commitData.reward,
+                token_,
+                tokenId_,
                 rng,
                 odds,
                 win,
-                address(0),
-                0,
-                0,
-                commitData.receiver,
+                false,
                 protocolFeesPaid,
-                digest
+                flatFee
             );
         }
     }
 
-    /// @notice Fulfills a commit with the result of the random number generation
+    /// @notice Fulfills a commit by digest with the result of the random number generation
     /// @param commitDigest_ Digest of the commit to fulfill
     /// @param marketplace_ Address where the order should be executed
     /// @param orderData_ Calldata for the order execution
@@ -480,38 +565,11 @@ contract LuckyBuy is
     /// @param token_ Address of the token being transferred (zero address for ETH)
     /// @param tokenId_ ID of the token if it's an NFT
     /// @param signature_ Signature used for random number generation
+    /// @param feeSplitReceiver_ Address of the fee split receiver (address(0) for no split)
+    /// @param feeSplitPercentage_ Percentage of the fee to split (0 for no split)
     /// @dev Emits a Fulfillment event on success
+    /// @dev Emits a FeeSplit event if fee splitting is enabled
     function fulfillByDigest(
-        bytes32 commitDigest_,
-        address marketplace_,
-        bytes calldata orderData_,
-        uint256 orderAmount_,
-        address token_,
-        uint256 tokenId_,
-        bytes calldata signature_
-    ) public payable whenNotPaused {
-        return
-            fulfill(
-                commitIdByDigest[commitDigest_],
-                marketplace_,
-                orderData_,
-                orderAmount_,
-                token_,
-                tokenId_,
-                signature_
-            );
-    }
-
-    /// @notice Fulfills a commit with the result of the random number generation
-    /// @param commitDigest_ Digest of the commit to fulfill
-    /// @param marketplace_ Address where the order should be executed
-    /// @param orderData_ Calldata for the order execution
-    /// @param orderAmount_ Amount of ETH to send with the order
-    /// @param token_ Address of the token being transferred (zero address for ETH)
-    /// @param tokenId_ ID of the token if it's an NFT
-    /// @param signature_ Signature used for random number generation
-    /// @dev Emits a Fulfillment event on success
-    function fulfillByDigestWithFeeSplit(
         bytes32 commitDigest_,
         address marketplace_,
         bytes calldata orderData_,
@@ -523,7 +581,7 @@ contract LuckyBuy is
         uint256 feeSplitPercentage_
     ) public payable whenNotPaused {
         return
-            fulfillWithFeeSplit(
+            fulfill(
                 commitIdByDigest[commitDigest_],
                 marketplace_,
                 orderData_,
@@ -534,6 +592,38 @@ contract LuckyBuy is
                 feeSplitReceiver_,
                 feeSplitPercentage_
             );
+    }
+
+    /// @notice Fulfills multiple commits in a single transaction
+    /// @param requests_ Array of fulfill requests (each with its own commit digest and fee split configuration)
+    /// @dev Anyone can call this function as long as they have valid cosigner signatures
+    /// @dev Emits a Fulfillment event for each successful fulfill
+    /// @dev Emits a FeeSplit event for each fulfill if fee splitting is enabled
+    function bulkFulfill(
+        FulfillRequest[] calldata requests_
+    ) public payable whenNotPaused {
+        if (requests_.length == 0) revert InvalidAmount();
+        if (requests_.length > maxBulkSize) revert InvalidBulkSize();
+
+        if (msg.value > 0) _depositTreasury(msg.value);
+
+        // Phase 1: Process each fulfill individually
+        for (uint256 i = 0; i < requests_.length; i++) {
+            FulfillRequest calldata request = requests_[i];
+
+            // Use the existing fulfill function for each request
+            fulfill(
+                commitIdByDigest[request.commitDigest],
+                request.marketplace,
+                request.orderData,
+                request.orderAmount,
+                request.token,
+                request.tokenId,
+                request.signature,
+                request.feeSplitReceiver,
+                request.feeSplitPercentage
+            );
+        }
     }
 
     function _handleWin(
@@ -547,7 +637,8 @@ contract LuckyBuy is
         address token_,
         uint256 tokenId_,
         uint256 protocolFeesPaid,
-        bytes32 digest
+        bytes32 digest,
+        bytes calldata signature_
     ) internal {
         // execute the market data to transfer the nft
         bool success = _fulfillOrder(marketplace_, orderData_, orderAmount_);
@@ -556,39 +647,52 @@ contract LuckyBuy is
             treasuryBalance -= orderAmount_;
             // emit a success transfer for the nft
             emit Fulfillment(
-                msg.sender,
+                digest,
+                commitData.receiver,
                 commitData.id,
+                commitData.cosigner,
+                commitData.amount,
+                orderAmount_,
+                token_,
+                tokenId_,
                 rng_,
                 odds_,
                 win_,
-                token_,
-                tokenId_,
-                orderAmount_,
-                commitData.receiver,
+                success,
                 protocolFeesPaid,
-                digest
+                flatFee
             );
         } else {
             // The order failed to fulfill, it could be bought already or invalid, make the best effort to send the user the value of the order they won.
-            (bool success, ) = commitData.receiver.call{value: orderAmount_}("");
+            (bool success, ) = commitData.receiver.call{value: orderAmount_}(
+                ""
+            );
             if (success) {
                 treasuryBalance -= orderAmount_;
             } else {
-                emit TransferFailure(commitData.id, commitData.receiver, orderAmount_, digest);
+                emit TransferFailure(
+                    commitData.id,
+                    commitData.receiver,
+                    orderAmount_,
+                    digest
+                );
             }
 
             emit Fulfillment(
-                msg.sender,
+                digest,
+                commitData.receiver,
                 commitData.id,
+                commitData.cosigner,
+                commitData.amount,
+                orderAmount_,
+                token_,
+                tokenId_,
                 rng_,
                 odds_,
                 win_,
-                address(0),
-                0,
-                orderAmount_,
-                commitData.receiver,
+                false,
                 protocolFeesPaid,
-                digest
+                flatFee
             );
         }
     }
@@ -636,6 +740,37 @@ contract LuckyBuy is
     function expire(
         uint256 commitId_
     ) external onlyCommitOwnerOrCosigner(commitId_) nonReentrant {
+        _expire(commitId_);
+    }
+
+    /// @notice Allows bulk expiration of multiple commits in a single transaction
+    /// @param commitIds_ Array of commit IDs to expire
+    /// @dev Only callable by the commit owner or cosigner for each commit
+    /// @dev Emits a CommitExpired event for each successful expiration
+    /// @dev Emits a BulkExpire event after successful completion
+    function bulkExpire(uint256[] calldata commitIds_) external {
+        if (commitIds_.length == 0) revert InvalidAmount();
+        if (commitIds_.length > maxBulkSize) revert InvalidBulkSize();
+
+        // Process each expiration
+        for (uint256 i = 0; i < commitIds_.length; i++) {
+            uint256 commitId = commitIds_[i];
+
+            // Validate ownership for each commit
+            if (
+                luckyBuys[commitId].receiver != msg.sender &&
+                luckyBuys[commitId].cosigner != msg.sender
+            ) revert InvalidCommitOwner();
+
+            _expire(commitId);
+        }
+    }
+
+    /// @notice Internal function to expire a commit
+    /// @param commitId_ ID of the commit to expire
+    /// @dev Validates expiration conditions and processes the expiration
+    /// @dev Emits a CommitExpired event
+    function _expire(uint256 commitId_) internal {
         if (commitId_ >= luckyBuys.length) revert InvalidCommitId();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isExpired[commitId_]) revert CommitIsExpired();
@@ -654,26 +789,37 @@ contract LuckyBuy is
 
         uint256 transferAmount = commitAmount + protocolFeesPaid;
 
-        (bool success, ) = payable(commitData.receiver).call{value: transferAmount}("");
+        (bool success, ) = payable(commitData.receiver).call{
+            value: transferAmount
+        }("");
         if (!success) {
-            // Transfer failed; account the funds in treasury and emit event.
             treasuryBalance += transferAmount;
-            emit TransferFailure(commitId_, commitData.receiver, transferAmount, hash(commitData));
+            emit TransferFailure(
+                commitId_,
+                commitData.receiver,
+                transferAmount,
+                hash(commitData)
+            );
         }
 
         emit CommitExpired(commitId_, hash(commitData));
     }
 
-    /// @notice Calculates contribution amount after removing fee
+    /// @notice Calculate contribution amount with custom fee rate
     /// @param amount The original amount including fee
+    /// @param feeRate The fee rate to apply (in basis points)
     /// @return The contribution amount without the fee
     /// @dev Uses formula: contribution = (amount * FEE_DENOMINATOR) / (FEE_DENOMINATOR + feePercent)
     /// @dev This ensures fee isn't charged on the fee portion itself
     function calculateContributionWithoutFee(
-        uint256 amount
+        uint256 amount,
+        uint256 feeRate
     ) public view returns (uint256) {
-        return (amount * BASE_POINTS) / (BASE_POINTS + protocolFee);
+        return (amount * BASE_POINTS) / (BASE_POINTS + feeRate);
     }
+
+    // Internal validation helpers have been moved to the dedicated
+    // INTERNAL FUNCTIONS section further below.
 
     function onERC1155Received(
         address operator,
@@ -892,6 +1038,36 @@ contract LuckyBuy is
         emit MinRewardUpdated(oldMinReward, minReward_);
     }
 
+    /// @notice Sets the bulk commit fee. Is a percentage fee applied to bulk commits
+    /// @param bulkCommitFee_ New bulk commit fee in basis points
+    /// @dev Only callable by ops role
+    /// @dev Emits a BulkCommitFeeUpdated event
+    function setBulkCommitFee(
+        uint256 bulkCommitFee_
+    ) external onlyRole(OPS_ROLE) {
+        _setBulkCommitFee(bulkCommitFee_);
+    }
+
+    function _setBulkCommitFee(uint256 bulkCommitFee_) internal {
+        if (bulkCommitFee_ > BASE_POINTS) revert InvalidBulkCommitFee();
+        uint256 oldBulkCommitFee = bulkCommitFee;
+        bulkCommitFee = bulkCommitFee_;
+        emit BulkCommitFeeUpdated(oldBulkCommitFee, bulkCommitFee_);
+    }
+
+    /// @notice Sets the maximum bulk size for commit operations.
+    /// @param maxBulkSize_ New maximum bulk size.
+    /// @dev Only callable by admin role.
+    /// @dev Emits a MaxBulkSizeUpdated event.
+    function setMaxBulkSize(
+        uint256 maxBulkSize_
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (maxBulkSize_ < 1) revert InvalidBulkSize(); // Minimum size is 1
+        uint256 oldMaxBulkSize = maxBulkSize;
+        maxBulkSize = maxBulkSize_;
+        emit MaxBulkSizeUpdated(oldMaxBulkSize, maxBulkSize_);
+    }
+
     /// @notice Deposits ETH into the treasury
     /// @dev Called internally when receiving ETH
     /// @param amount Amount of ETH to deposit
@@ -914,6 +1090,61 @@ contract LuckyBuy is
     /// @dev Required for contract to receive ETH
     receive() external payable {
         _depositTreasury(msg.value);
+    }
+
+    // ############################################################
+    // ############ INTERNAL FUNCTIONS ############
+    // ############################################################
+
+    function _validateCommit(
+        address receiver_,
+        address cosigner_,
+        uint256 reward_,
+        uint256 commitAmount
+    ) internal view {
+        if (cosigner_ == address(0) || !isCosigner[cosigner_]) {
+            revert InvalidCosigner();
+        }
+        if (receiver_ == address(0)) {
+            revert InvalidReceiver();
+        }
+        if (reward_ == 0 || reward_ > maxReward || reward_ < minReward) {
+            revert InvalidReward();
+        }
+        if (commitAmount < (reward_ / ONE_PERCENT) || commitAmount > reward_) {
+            revert InvalidAmount();
+        }
+    }
+
+    function _validateFulfillment(
+        uint256 commitId_,
+        address marketplace_,
+        bytes calldata orderData_,
+        uint256 orderAmount_,
+        address token_,
+        uint256 tokenId_,
+        bytes calldata signature_
+    ) internal view returns (CommitData memory, bytes32) {
+        if (commitId_ >= luckyBuys.length) revert InvalidCommitId();
+        if (isFulfilled[commitId_]) revert AlreadyFulfilled();
+        if (isExpired[commitId_]) revert CommitIsExpired();
+
+        CommitData memory commitData = luckyBuys[commitId_];
+
+        if (
+            commitData.orderHash !=
+            hashOrder(marketplace_, orderAmount_, orderData_, token_, tokenId_)
+        ) revert InvalidOrderHash();
+
+        if (orderAmount_ != commitData.reward) revert InvalidAmount();
+
+        bytes32 digest = hash(commitData);
+        address cosigner = _verifyDigest(digest, signature_);
+        if (cosigner != commitData.cosigner || !isCosigner[cosigner]) {
+            revert InvalidCosigner();
+        }
+
+        return (commitData, digest);
     }
 
     /// @notice Calculates the odds of winning based on amount and reward
