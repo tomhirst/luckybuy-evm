@@ -4,17 +4,17 @@ pragma solidity ^0.8.28;
 import "forge-std/Script.sol";
 import "../src/PacksInitializable.sol";
 import "../src/PRNG.sol";
-import "../src/common/interfaces/IPacksSignatureVerifier.sol";
+import "../src/common/SignatureVerifier/PacksSignatureVerifierUpgradeable.sol";
 
 contract PacksScriptBase is Script {
     // Common signing utilities
     function signPack(
         PacksInitializable packs,
         uint256 packPrice,
-        IPacksSignatureVerifier.BucketData[] memory buckets,
+        PacksSignatureVerifierUpgradeable.BucketData[] memory buckets,
         uint256 signerKey
     ) internal pure returns (bytes memory) {
-        bytes32 packHash = packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets);
+        bytes32 packHash = packs.hashPack(PacksSignatureVerifierUpgradeable.PackType.NFT, packPrice, buckets);
         return _signMessage(packHash, signerKey);
     }
 
@@ -26,10 +26,10 @@ contract PacksScriptBase is Script {
         uint256 seed,
         uint256 counter,
         uint256 packPrice,
-        IPacksSignatureVerifier.BucketData[] memory buckets,
+        PacksSignatureVerifierUpgradeable.BucketData[] memory buckets,
         uint256 signerKey
     ) internal view returns (bytes memory) {
-        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+        PacksSignatureVerifierUpgradeable.CommitData memory commitData = PacksSignatureVerifierUpgradeable.CommitData({
             id: commitId,
             receiver: receiver,
             cosigner: cosigner,
@@ -37,7 +37,7 @@ contract PacksScriptBase is Script {
             counter: counter,
             packPrice: packPrice,
             buckets: buckets,
-            packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, packPrice, buckets)
+            packHash: packs.hashPack(PacksSignatureVerifierUpgradeable.PackType.NFT, packPrice, buckets)
         });
 
         bytes32 digest = packs.hashCommit(commitData);
@@ -46,14 +46,14 @@ contract PacksScriptBase is Script {
 
     function signOrder(
         PacksInitializable packs,
-        IPacksSignatureVerifier.CommitData memory commitData,
+        PacksSignatureVerifierUpgradeable.CommitData memory commitData,
         address marketplace,
         uint256 orderAmount,
         bytes memory orderData,
         address token,
         uint256 tokenId,
         uint256 payoutAmount,
-        IPacksSignatureVerifier.FulfillmentOption choice,
+        PacksSignatureVerifierUpgradeable.FulfillmentOption choice,
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 digest = packs.hashCommit(commitData);
@@ -63,7 +63,7 @@ contract PacksScriptBase is Script {
     }
 
     // Local implementation of hashChoice for script purposes
-    function hashChoice(bytes32 digest, IPacksSignatureVerifier.FulfillmentOption choice)
+    function hashChoice(bytes32 digest, PacksSignatureVerifierUpgradeable.FulfillmentOption choice)
         private
         pure
         returns (bytes32)
@@ -73,8 +73,8 @@ contract PacksScriptBase is Script {
 
     function signChoice(
         PacksInitializable packs,
-        IPacksSignatureVerifier.CommitData memory commitData,
-        IPacksSignatureVerifier.FulfillmentOption choice,
+        PacksSignatureVerifierUpgradeable.CommitData memory commitData,
+        PacksSignatureVerifierUpgradeable.FulfillmentOption choice,
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 digest = packs.hashCommit(commitData);
@@ -87,16 +87,16 @@ contract PacksScriptBase is Script {
         return abi.encodePacked(r, s, v);
     }
 
-    function setupDefaultBuckets() internal pure returns (IPacksSignatureVerifier.BucketData[] memory buckets) {
-        buckets = new IPacksSignatureVerifier.BucketData[](3);
+    function setupDefaultBuckets() internal pure returns (PacksSignatureVerifierUpgradeable.BucketData[] memory buckets) {
+        buckets = new PacksSignatureVerifierUpgradeable.BucketData[](3);
 
         // Bucket 1: 80% chance
-        buckets[0] = IPacksSignatureVerifier.BucketData({oddsBps: 8000, minValue: 0.01 ether, maxValue: 0.02 ether});
+        buckets[0] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 8000, minValue: 0.01 ether, maxValue: 0.02 ether});
 
         // Bucket 2: 10% chance
-        buckets[1] = IPacksSignatureVerifier.BucketData({oddsBps: 1000, minValue: 0.03 ether, maxValue: 0.04 ether});
+        buckets[1] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 1000, minValue: 0.03 ether, maxValue: 0.04 ether});
 
         // Bucket 3: 10% chance
-        buckets[2] = IPacksSignatureVerifier.BucketData({oddsBps: 1000, minValue: 0.05 ether, maxValue: 0.06 ether});
+        buckets[2] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 1000, minValue: 0.05 ether, maxValue: 0.06 ether});
     }
 }

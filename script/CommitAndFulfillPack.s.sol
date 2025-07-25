@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import "./PacksScriptBase.s.sol";
+import "../src/common/SignatureVerifier/PacksSignatureVerifierUpgradeable.sol";
 
 contract CommitAndFulfillPack is PacksScriptBase {
     address payable public constant PACKS = payable(0xc8Cc8DdEb82CCbbC6d6bc67047381bB6a8842F5b);
@@ -36,7 +37,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
         vm.stopBroadcast();
 
         // Get default buckets
-        IPacksSignatureVerifier.BucketData[] memory buckets = setupDefaultBuckets();
+        PacksSignatureVerifierUpgradeable.BucketData[] memory buckets = setupDefaultBuckets();
 
         // 1. Sign the pack data
         bytes memory packSignature = signPack(packs, PACK_PRICE, buckets, cosignerPrivateKey);
@@ -47,7 +48,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
             player, // receiver
             cosigner, // cosigner
             SEED,
-            IPacksSignatureVerifier.PackType.NFT,
+            PacksSignatureVerifierUpgradeable.PackType.NFT,
             buckets,
             packSignature
         );
@@ -55,7 +56,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
         console.log("Commit ID:", commitId);
 
         // 3. Get commit data for fulfillment
-        IPacksSignatureVerifier.CommitData memory commitData = IPacksSignatureVerifier.CommitData({
+        PacksSignatureVerifierUpgradeable.CommitData memory commitData = PacksSignatureVerifierUpgradeable.CommitData({
             id: commitId,
             receiver: player,
             cosigner: cosigner,
@@ -63,7 +64,7 @@ contract CommitAndFulfillPack is PacksScriptBase {
             counter: 0,
             packPrice: PACK_PRICE,
             buckets: buckets,
-            packHash: packs.hashPack(IPacksSignatureVerifier.PackType.NFT, PACK_PRICE, buckets)
+            packHash: packs.hashPack(PacksSignatureVerifierUpgradeable.PackType.NFT, PACK_PRICE, buckets)
         });
 
         // 4. Sign the commit data
@@ -92,14 +93,14 @@ contract CommitAndFulfillPack is PacksScriptBase {
             token,
             tokenId,
             0, // payoutAmount (not used for NFT fulfillment)
-            IPacksSignatureVerifier.FulfillmentOption.NFT,
+            PacksSignatureVerifierUpgradeable.FulfillmentOption.NFT,
             cosignerPrivateKey
         );
 
         // 8. Sign the choice
-        IPacksSignatureVerifier.FulfillmentOption fulfillmentOption = isNFTFulfillment
-            ? IPacksSignatureVerifier.FulfillmentOption.NFT
-            : IPacksSignatureVerifier.FulfillmentOption.Payout;
+        PacksSignatureVerifierUpgradeable.FulfillmentOption fulfillmentOption = isNFTFulfillment
+            ? PacksSignatureVerifierUpgradeable.FulfillmentOption.NFT
+            : PacksSignatureVerifierUpgradeable.FulfillmentOption.Payout;
 
         uint256 choiceSignerPrivateKey = isNFTFulfillment ? playerPrivateKey : cosignerPrivateKey;
 

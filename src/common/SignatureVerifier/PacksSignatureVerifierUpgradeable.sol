@@ -1,16 +1,48 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "./AbstractSignatureVerifierUpgradeable.sol";
 
-import "./interfaces/IPacksSignatureVerifier.sol";
+contract PacksSignatureVerifierUpgradeable is
+    AbstractSignatureVerifierUpgradeable
+{
+    struct BucketData {
+        uint256 oddsBps;
+        uint256 minValue;
+        uint256 maxValue;
+    }
 
-contract PacksSignatureVerifierUpgradeable is IPacksSignatureVerifier, EIP712Upgradeable {
-    using ECDSA for bytes32;
+    struct CommitData {
+        uint256 id;
+        address receiver;
+        address cosigner;
+        uint256 seed;
+        uint256 counter;
+        uint256 packPrice;
+        BucketData[] buckets;
+        bytes32 packHash;
+    }
 
-    function __PacksSignatureVerifier_init(string memory name, string memory version) internal onlyInitializing {
-        __EIP712_init(name, version);
+    enum PackType {
+        NFT,
+        RWA
+    }
+
+    enum FulfillmentOption {
+        NFT,
+        Payout
+    }
+
+    bytes32 private constant _TYPE_HASH =
+        keccak256(
+            "CommitData(uint256 id,address receiver,address cosigner,uint256 seed,uint256 counter,uint256 packPrice,BucketData[] buckets,bytes32 packHash)"
+        );
+
+    function __PacksSignatureVerifier_init(
+        string memory name,
+        string memory version
+    ) internal onlyInitializing {
+        __AbstractSignatureVerifier_init(name, version);
     }
 
     /// @notice Hashes a commit
