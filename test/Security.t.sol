@@ -4,7 +4,8 @@ pragma solidity 0.8.28;
 import "forge-std/Test.sol";
 import "src/LuckyBuy.sol";
 import "src/PRNG.sol";
-import "src/common/interfaces/ISignatureVerifier.sol";
+import "src/common/SignatureVerifier/LuckyBuySignatureVerifierUpgradeable.sol";
+import {Errors} from "../src/common/Errors.sol";
 
 /**
  * @title SecurityTest
@@ -87,7 +88,7 @@ contract SecurityTest is Test {
             uint256 reward
         ) = luckyBuy.luckyBuys(commitId);
         
-        ISignatureVerifier.CommitData memory commitData = ISignatureVerifier.CommitData({
+        LuckyBuySignatureVerifierUpgradeable.CommitData memory commitData = LuckyBuySignatureVerifierUpgradeable.CommitData({
             id: id,
             receiver: receiver,
             cosigner: cosigner,
@@ -149,7 +150,7 @@ contract SecurityTest is Test {
             uint256 reward
         ) = luckyBuy.luckyBuys(commitId);
         
-        bytes32 digest = luckyBuy.hash(ISignatureVerifier.CommitData({
+        bytes32 digest = luckyBuy.hash(LuckyBuySignatureVerifierUpgradeable.CommitData({
             id: id,
             receiver: receiver,
             cosigner: cosigner,
@@ -215,7 +216,7 @@ contract SecurityTest is Test {
             uint256 reward2
         ) = luckyBuy.luckyBuys(commitId2);
         
-        bytes32 digest2 = luckyBuy.hash(ISignatureVerifier.CommitData({
+        bytes32 digest2 = luckyBuy.hash(LuckyBuySignatureVerifierUpgradeable.CommitData({
             id: id2,
             receiver: receiver2,
             cosigner: cosigner2,
@@ -250,7 +251,7 @@ contract SecurityTest is Test {
         
         // Try to commit with unauthorized cosigner address
         vm.prank(maliciousActor);
-        vm.expectRevert(abi.encodeWithSignature("InvalidCosigner()"));
+        vm.expectRevert(abi.encodeWithSignature("InvalidAddress()"));
         
         luckyBuy.commit{value: COMMIT_AMOUNT}(
             maliciousActor,
@@ -326,7 +327,7 @@ contract SecurityTest is Test {
      */
     function test_Security_ZeroAddressAttackPrevention() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSignature("InvalidCosigner()"));
+        vm.expectRevert(abi.encodeWithSignature("InvalidAddress()"));
         
         luckyBuy.commit{value: COMMIT_AMOUNT}(
             user,
