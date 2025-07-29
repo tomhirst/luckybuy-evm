@@ -7,6 +7,7 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {MEAccessControlUpgradeable} from "./common/MEAccessControlUpgradeable.sol";
 import {IPRNG} from "./common/interfaces/IPRNG.sol";
 import {TokenRescuer} from "./common/TokenRescuer.sol";
+import {Errors} from "./common/Errors.sol";
 
 contract Packs is
     MEAccessControlUpgradeable,
@@ -98,12 +99,8 @@ contract Packs is
 
     error AlreadyCosigner();
     error AlreadyFulfilled();
-    error InsufficientBalance();
-    error InvalidAmount();
     error InvalidCommitOwner();
     error InvalidBuckets();
-    error InvalidCosigner();
-    error InvalidReceiver();
     error InvalidChoiceSigner();
     error InvalidReward();
     error InvalidPackPrice();
@@ -113,14 +110,9 @@ contract Packs is
     error InvalidNftFulfillmentExpiryTime();
     error CommitIsCancelled();
     error CommitNotCancellable();
-    error InvalidFundsReceiver();
     error InvalidFundsReceiverManager();
     error InitialOwnerCannotBeZero();
     error BucketSelectionFailed();
-    error InvalidMarketplace();
-    error InvalidPayoutAmount();
-    error InvalidOrderAmount();
-    error PayoutAmountGreaterThanOrderAmount();
 
     modifier onlyCommitOwnerOrCosigner(uint256 commitId_) {
         if (packs[commitId_].receiver != msg.sender && packs[commitId_].cosigner != msg.sender) {
@@ -180,13 +172,13 @@ contract Packs is
         // Amount user is sending to purchase the pack
         uint256 packPrice = msg.value;
 
-        if (packPrice == 0) revert InvalidAmount();
-        if (packPrice < minPackPrice) revert InvalidAmount();
-        if (packPrice > maxPackPrice) revert InvalidAmount();
+        if (packPrice == 0) revert Errors.InvalidAmount();
+        if (packPrice < minPackPrice) revert Errors.InvalidAmount();
+        if (packPrice > maxPackPrice) revert Errors.InvalidAmount();
 
-        if (!isCosigner[cosigner_]) revert InvalidCosigner();
-        if (cosigner_ == address(0)) revert InvalidCosigner();
-        if (receiver_ == address(0)) revert InvalidReceiver();
+        if (!isCosigner[cosigner_]) revert Errors.InvalidAddress();
+        if (cosigner_ == address(0)) revert Errors.InvalidAddress();
+        if (receiver_ == address(0)) revert Errors.InvalidAddress();
 
         // Validate bucket count
         if (buckets_.length < MIN_BUCKETS) revert InvalidBuckets();
@@ -215,8 +207,8 @@ contract Packs is
         // Pack data gets re-checked in commitSignature on fulfill
         bytes32 packHash = hashPack(packType_, packPrice, buckets_);
         address cosigner = verifyHash(packHash, signature_);
-        if (cosigner != cosigner_) revert InvalidCosigner();
-        if (!isCosigner[cosigner]) revert InvalidCosigner();
+        if (cosigner != cosigner_) revert Errors.InvalidAddress();
+        if (!isCosigner[cosigner]) revert Errors.InvalidAddress();
 
         uint256 commitId = packs.length;
         uint256 userCounter = packCount[receiver_]++;
@@ -316,20 +308,20 @@ contract Packs is
         bytes calldata choiceSignature_
     ) internal nonReentrant {
         // Basic validation of tx
-        if (marketplace_ == address(0)) revert InvalidMarketplace();
+        if (marketplace_ == address(0)) revert Errors.InvalidAddress();
         if (msg.value > 0) _depositTreasury(msg.value);
-        if (orderAmount_ > treasuryBalance) revert InsufficientBalance();
+        if (orderAmount_ > treasuryBalance) revert Errors.InsufficientBalance();
         if (isFulfilled[commitId_]) revert AlreadyFulfilled();
         if (isCancelled[commitId_]) revert CommitIsCancelled();
         if (commitId_ >= packs.length) revert InvalidCommitId();
-        if (payoutAmount_ > orderAmount_) revert PayoutAmountGreaterThanOrderAmount();
+        if (payoutAmount_ > orderAmount_) revert Errors.InvalidAmount();
 
         CommitData memory commitData = packs[commitId_];
 
         // Check the cosigner signed the commit
         address commitCosigner = verifyCommit(commitData, commitSignature_);
-        if (commitCosigner != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[commitCosigner]) revert InvalidCosigner();
+        if (commitCosigner != commitData.cosigner) revert Errors.InvalidAddress();
+        if (!isCosigner[commitCosigner]) revert Errors.InvalidAddress();
 
         uint256 rng = PRNG.rng(commitSignature_);
         bytes32 digest = hashCommit(commitData);
@@ -338,16 +330,16 @@ contract Packs is
 
         // Check the cosigner signed the order data
         address fulfillmentCosigner = verifyHash(fulfillmentHash, fulfillmentSignature_);
-        if (fulfillmentCosigner != commitData.cosigner) revert InvalidCosigner();
-        if (!isCosigner[fulfillmentCosigner]) revert InvalidCosigner();
+        if (fulfillmentCosigner != commitData.cosigner) revert Errors.InvalidAddress();
+        if (!isCosigner[fulfillmentCosigner]) revert Errors.InvalidAddress();
 
         // Determine bucket and validate orderAmount and payoutAmount are within bucket range
         uint256 bucketIndex = _getBucketIndex(rng, commitData.buckets);
         BucketData memory bucket = commitData.buckets[bucketIndex];
-        if (orderAmount_ < bucket.minValue) revert InvalidOrderAmount();
-        if (orderAmount_ > bucket.maxValue) revert InvalidOrderAmount();
-        if (payoutAmount_ < bucket.minValue) revert InvalidPayoutAmount();
-        if (payoutAmount_ > bucket.maxValue) revert InvalidPayoutAmount();
+        if (orderAmount_ < bucket.minValue) revert Errors.InvalidAmount();
+        if (orderAmount_ > bucket.maxValue) revert Errors.InvalidAmount();
+        if (payoutAmount_ < bucket.minValue) revert Errors.InvalidAmount();
+        if (payoutAmount_ > bucket.maxValue) revert Errors.InvalidAmount();
 
         // Check the fulfillment option
         address choiceSigner = verifyHash(fulfillmentHash, choiceSignature_);
@@ -507,7 +499,7 @@ contract Packs is
     /// @dev Only callable by admin role
     /// @dev Emits a Withdrawal event
     function withdrawTreasury(uint256 amount) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (amount > treasuryBalance) revert InsufficientBalance();
+        if (amount > treasuryBalance) revert Errors.InsufficientBalance();
         treasuryBalance -= amount;
 
         (bool success,) = payable(fundsReceiver).call{value: amount}("");
@@ -636,7 +628,7 @@ contract Packs is
     /// @dev Only callable by admin role
     /// @dev Emits a CoSignerAdded event
     function addCosigner(address cosigner_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (cosigner_ == address(0)) revert InvalidCosigner();
+        if (cosigner_ == address(0)) revert Errors.InvalidAddress();
         if (isCosigner[cosigner_]) revert AlreadyCosigner();
         isCosigner[cosigner_] = true;
         emit CosignerAdded(cosigner_);
@@ -647,7 +639,7 @@ contract Packs is
     /// @dev Only callable by admin role
     /// @dev Emits a CoSignerRemoved event
     function removeCosigner(address cosigner_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (!isCosigner[cosigner_]) revert InvalidCosigner();
+        if (!isCosigner[cosigner_]) revert Errors.InvalidAddress();
         isCosigner[cosigner_] = false;
         emit CosignerRemoved(cosigner_);
     }
@@ -817,7 +809,7 @@ contract Packs is
     /// @notice Sets the funds receiver
     /// @param fundsReceiver_ Address to set as funds receiver
     function _setFundsReceiver(address fundsReceiver_) internal {
-        if (fundsReceiver_ == address(0)) revert InvalidFundsReceiver();
+        if (fundsReceiver_ == address(0)) revert Errors.InvalidAddress();
         if (hasRole(FUNDS_RECEIVER_MANAGER_ROLE, fundsReceiver_)) {
             revert InvalidFundsReceiverManager();
         }

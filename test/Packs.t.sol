@@ -253,7 +253,7 @@ contract TestPacks is Test {
 
         bytes memory signature = signPack(0.5 ether, buckets);
 
-        vm.expectRevert(Packs.InvalidAmount.selector);
+        vm.expectRevert(Errors.InvalidAmount.selector);
         packs.commit{value: 0.5 ether}(
             receiver, cosigner, seed, PacksSignatureVerifierUpgradeable.PackType.NFT, buckets, signature
         );
@@ -267,7 +267,7 @@ contract TestPacks is Test {
 
         bytes memory signature = signPack(packPrice, buckets);
 
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.commit{value: packPrice}(
             receiver, address(0x999), seed, PacksSignatureVerifierUpgradeable.PackType.NFT, buckets, signature
         );
@@ -373,7 +373,7 @@ contract TestPacks is Test {
 
         bytes memory wrongSignature = signPack(packPrice + 0.1 ether, buckets);
 
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.commit{value: packPrice}(
             receiver, cosigner, seed, PacksSignatureVerifierUpgradeable.PackType.NFT, buckets, wrongSignature
         );
@@ -657,7 +657,7 @@ contract TestPacks is Test {
         );
         bytes memory commitSignature = signCommit(commitId, receiver, seed, 0, packPrice, buckets, bob);
 
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.fulfill(
             commitId,
             marketplace,
@@ -741,7 +741,7 @@ contract TestPacks is Test {
             cosigner
         );
 
-        vm.expectRevert(Packs.InvalidOrderAmount.selector);
+        vm.expectRevert(Errors.InvalidAmount.selector);
         packs.fulfill(
             commitId,
             marketplace,
@@ -1121,7 +1121,7 @@ contract TestPacks is Test {
     }
 
     function testWithdrawTreasuryInsufficientBalance() public {
-        vm.expectRevert(Packs.InsufficientBalance.selector);
+        vm.expectRevert(Errors.InsufficientBalance.selector);
         vm.prank(admin);
         packs.withdrawTreasury(1 ether);
     }
@@ -1472,7 +1472,7 @@ contract TestPacks is Test {
             cosigner
         );
 
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.fulfill(
             commitId,
             marketplace,
@@ -1552,7 +1552,7 @@ contract TestPacks is Test {
             cosigner
         );
 
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.fulfill(
             commitId,
             marketplace,
@@ -1653,7 +1653,7 @@ contract TestPacks is Test {
             cosigner
         );
 
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.fulfill(
             commitId,
             marketplace,
@@ -2056,7 +2056,7 @@ contract TestPacks is Test {
 
     function testInvalidFundsReceiver() public {
         vm.startPrank(fundsReceiverManager);
-        vm.expectRevert(Packs.InvalidFundsReceiver.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.setFundsReceiver(address(0));
         vm.stopPrank();
     }
@@ -2495,7 +2495,7 @@ contract TestPacks is Test {
         assertTrue(packs.isCosigner(bob));
 
         // Test adding zero address
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.addCosigner(address(0));
 
         // Test adding already existing cosigner
@@ -2503,7 +2503,7 @@ contract TestPacks is Test {
         packs.addCosigner(bob);
 
         // Test removing non-existent cosigner
-        vm.expectRevert(Packs.InvalidCosigner.selector);
+        vm.expectRevert(Errors.InvalidAddress.selector);
         packs.removeCosigner(charlie);
 
         packs.removeCosigner(bob);
