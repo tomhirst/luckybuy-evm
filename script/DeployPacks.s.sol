@@ -43,6 +43,14 @@ contract DeployPacks is Script {
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         console.log("Proxy", address(proxy));
 
+        // 5. Add cosigner to the proxy
+        uint256 cosignerPrivateKey = vm.envUint("PACKS_COSIGNER_PRIVATE_KEY");
+        address cosigner = vm.addr(cosignerPrivateKey);
+        console.log("Cosigner", cosigner);
+        
+        PacksInitializable(payable(address(proxy))).addCosigner(cosigner);
+        console.log("Cosigner added to proxy");
+
         vm.stopBroadcast();
     }
 }

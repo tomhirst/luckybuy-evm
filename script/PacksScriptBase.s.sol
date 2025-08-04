@@ -74,12 +74,29 @@ contract PacksScriptBase is Script {
     function signChoice(
         PacksInitializable packs,
         PacksSignatureVerifierUpgradeable.CommitData memory commitData,
+        address marketplace,
+        uint256 orderAmount,
+        bytes memory orderData,
+        address token,
+        uint256 tokenId,
+        uint256 payoutAmount,
         PacksSignatureVerifierUpgradeable.FulfillmentOption choice,
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 digest = packs.hashCommit(commitData);
-        bytes32 choiceHash = hashChoice(digest, choice);
-        return _signMessage(choiceHash, signerKey);
+        // The contract expects the choice signature to be signed over the same fulfillmentHash
+        // that was used for the order signature
+        bytes32 fulfillmentHash = packs.hashFulfillment(
+            digest, 
+            marketplace,
+            orderAmount,
+            orderData,
+            token,
+            tokenId,
+            payoutAmount,
+            choice
+        );
+        return _signMessage(fulfillmentHash, signerKey);
     }
 
     function _signMessage(bytes32 hash, uint256 privateKey) internal pure returns (bytes memory) {
@@ -91,12 +108,12 @@ contract PacksScriptBase is Script {
         buckets = new PacksSignatureVerifierUpgradeable.BucketData[](3);
 
         // Bucket 1: 80% chance
-        buckets[0] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 8000, minValue: 0.01 ether, maxValue: 0.02 ether});
+        buckets[0] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 8000, minValue: 0.01 ether, maxValue: 0.011 ether});
 
         // Bucket 2: 10% chance
-        buckets[1] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 1000, minValue: 0.03 ether, maxValue: 0.04 ether});
+        buckets[1] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 1000, minValue: 0.012 ether, maxValue: 0.013 ether});
 
         // Bucket 3: 10% chance
-        buckets[2] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 1000, minValue: 0.05 ether, maxValue: 0.06 ether});
+        buckets[2] = PacksSignatureVerifierUpgradeable.BucketData({oddsBps: 1000, minValue: 0.014 ether, maxValue: 0.015 ether});
     }
 }
