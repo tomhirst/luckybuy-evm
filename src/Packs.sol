@@ -77,7 +77,6 @@ contract Packs is
         uint256 tokenId,
         uint256 amount,
         address receiver,
-        address choiceSigner,
         FulfillmentOption choice,
         FulfillmentOption fulfillmentType,
         bytes32 digest
@@ -106,7 +105,6 @@ contract Packs is
     error AlreadyFulfilled();
     error InvalidCommitOwner();
     error InvalidBuckets();
-    error InvalidChoiceSigner();
     error InvalidReward();
     error InvalidPackPrice();
     error InvalidPackRewardMultiplier();
@@ -271,7 +269,6 @@ contract Packs is
     /// @param commitSignature_ Signature used for commit data
     /// @param fulfillmentSignature_ Signature used for orderData (and to validate orderData)
     /// @param choice_ Choice made by the receiver (Payout = 0, NFT = 1)
-    /// @param choiceSignature_ Signature used for receiver's choice (only required for NFT choice)
     /// @dev Emits a Fulfillment event on success
     function fulfill(
         uint256 commitId_,
@@ -283,8 +280,7 @@ contract Packs is
         uint256 payoutAmount_,
         bytes calldata commitSignature_,
         bytes calldata fulfillmentSignature_,
-        FulfillmentOption choice_,
-        bytes calldata choiceSignature_
+        FulfillmentOption choice_
     ) public payable whenNotPaused {
         _fulfill(
             commitId_,
@@ -296,8 +292,7 @@ contract Packs is
             payoutAmount_,
             commitSignature_,
             fulfillmentSignature_,
-            choice_,
-            choiceSignature_
+            choice_
         );
     }
 
@@ -311,8 +306,7 @@ contract Packs is
         uint256 payoutAmount_,
         bytes calldata commitSignature_,
         bytes calldata fulfillmentSignature_,
-        FulfillmentOption choice_,
-        bytes calldata choiceSignature_
+        FulfillmentOption choice_
     ) internal nonReentrant {
         // Basic validation of tx
         if (commitId_ >= packs.length) revert InvalidCommitId();
@@ -350,11 +344,7 @@ contract Packs is
         if (payoutAmount_ < bucket.minValue) revert Errors.InvalidAmount();
         if (payoutAmount_ > bucket.maxValue) revert Errors.InvalidAmount();
 
-        // Check the fulfillment option
-        address choiceSigner = verifyHash(fulfillmentHash, choiceSignature_);
-        if (choiceSigner != commitData.receiver && choiceSigner != commitData.cosigner) revert InvalidChoiceSigner();
-
-        // If the user wants to fulfill via NFT but the option has expired, default to payout
+        // If we want to fulfill via NFT but the option has expired, default to payout
         FulfillmentOption fulfillmentType = choice_;
         if (choice_ == FulfillmentOption.NFT && block.timestamp > nftFulfillmentExpiresAt[commitId_]) {
             fulfillmentType = FulfillmentOption.Payout;
@@ -390,7 +380,6 @@ contract Packs is
                     tokenId_,
                     orderAmount_,
                     commitData.receiver,
-                    choiceSigner,
                     choice_,
                     fulfillmentType,
                     digest
@@ -415,7 +404,6 @@ contract Packs is
                     0, // no NFT token ID when NFT fails
                     0, // no NFT amount when NFT fails
                     commitData.receiver,
-                    choiceSigner,
                     choice_,
                     fulfillmentType,
                     digest
@@ -454,7 +442,6 @@ contract Packs is
                 0, // no NFT token ID for payout
                 0, // no NFT amount for payout
                 commitData.receiver,
-                choiceSigner,
                 choice_,
                 fulfillmentType,
                 digest
@@ -473,7 +460,6 @@ contract Packs is
     /// @param commitSignature_ Signature used for commit data
     /// @param fulfillmentSignature_ Signature used for fulfillment data
     /// @param choice_ Choice made by the receiver
-    /// @param choiceSignature_ Signature used for receiver's choice
     /// @dev Only callable by the cosigner of the commit
     /// @dev Emits a Fulfillment event on success
     function fulfillByDigest(
@@ -486,8 +472,7 @@ contract Packs is
         uint256 payoutAmount_,
         bytes calldata commitSignature_,
         bytes calldata fulfillmentSignature_,
-        FulfillmentOption choice_,
-        bytes calldata choiceSignature_
+        FulfillmentOption choice_
     ) public payable whenNotPaused {
         return fulfill(
             commitIdByDigest[commitDigest_],
@@ -499,8 +484,7 @@ contract Packs is
             payoutAmount_,
             commitSignature_,
             fulfillmentSignature_,
-            choice_,
-            choiceSignature_
+            choice_
         );
     }
 
