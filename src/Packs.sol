@@ -148,7 +148,7 @@ contract Packs is
         maxPackPrice = 0.25 ether;
 
         minPackRewardMultiplier = 5000;
-        maxPackRewardMultiplier = 30000;
+        maxPackRewardMultiplier = 300000;
 
         // Initialize expiries
         commitCancellableTime = 1 days;
