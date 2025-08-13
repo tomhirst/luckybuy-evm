@@ -181,7 +181,7 @@ contract TestPacks is Test {
         assertEq(packs.minPackPrice(), 0.01 ether);
         assertEq(packs.maxPackPrice(), 0.25 ether);
         assertEq(packs.minPackRewardMultiplier(), 5000);
-        assertEq(packs.maxPackRewardMultiplier(), 30000);
+        assertEq(packs.maxPackRewardMultiplier(), 300000);
     }
 
     function testCommitSuccess() public {
