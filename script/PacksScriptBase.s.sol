@@ -71,34 +71,6 @@ contract PacksScriptBase is Script {
         return keccak256(abi.encode(digest, choice));
     }
 
-    function signChoice(
-        PacksInitializable packs,
-        PacksSignatureVerifierUpgradeable.CommitData memory commitData,
-        address marketplace,
-        uint256 orderAmount,
-        bytes memory orderData,
-        address token,
-        uint256 tokenId,
-        uint256 payoutAmount,
-        PacksSignatureVerifierUpgradeable.FulfillmentOption choice,
-        uint256 signerKey
-    ) internal view returns (bytes memory) {
-        bytes32 digest = packs.hashCommit(commitData);
-        // The contract expects the choice signature to be signed over the same fulfillmentHash
-        // that was used for the order signature
-        bytes32 fulfillmentHash = packs.hashFulfillment(
-            digest, 
-            marketplace,
-            orderAmount,
-            orderData,
-            token,
-            tokenId,
-            payoutAmount,
-            choice
-        );
-        return _signMessage(fulfillmentHash, signerKey);
-    }
-
     function _signMessage(bytes32 hash, uint256 privateKey) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, hash);
         return abi.encodePacked(r, s, v);
