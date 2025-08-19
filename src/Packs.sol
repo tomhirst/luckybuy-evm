@@ -62,6 +62,8 @@ contract Packs is
         address cosigner,
         uint256 seed,
         uint256 counter,
+        PackType packType,
+        uint256 packId,
         uint256 packPrice,
         bytes32 packHash,
         bytes32 digest
@@ -160,6 +162,7 @@ contract Packs is
     /// @param cosigner_ Address of the authorized cosigner
     /// @param seed_ Random seed for the commit
     /// @param packType_ Type of pack
+    /// @param packId_ ID of the pack
     /// @param buckets_ Buckets used in the pack
     /// @param signature_ Signature is the cosigned hash of packPrice + buckets[]
     /// @dev Emits a Commit event on success
@@ -169,6 +172,7 @@ contract Packs is
         address cosigner_,
         uint256 seed_,
         PackType packType_,
+        uint256 packId_,
         BucketData[] memory buckets_,
         bytes memory signature_
     ) public payable whenNotPaused returns (uint256) {
@@ -210,7 +214,7 @@ contract Packs is
 
         // Hash pack for cosigner validation and event emission
         // Pack data gets re-checked in commitSignature on fulfill
-        bytes32 packHash = hashPack(packType_, packPrice, buckets_);
+        bytes32 packHash = hashPack(packType_, packId_, packPrice, buckets_);
         address cosigner = verifyHash(packHash, signature_);
         if (cosigner != cosigner_) revert Errors.InvalidAddress();
         if (!isCosigner[cosigner]) revert Errors.InvalidAddress();
@@ -238,7 +242,7 @@ contract Packs is
         bytes32 digest = hashCommit(commitData);
         commitIdByDigest[digest] = commitId;
 
-        emit Commit(msg.sender, commitId, receiver_, cosigner_, seed_, userCounter, packPrice, packHash, digest);
+        emit Commit(msg.sender, commitId, receiver_, cosigner_, seed_, userCounter, packType_, packId_, packPrice, packHash, digest);
 
         return commitId;
     }
